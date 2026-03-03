@@ -1,0 +1,116 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "MeshMash",
+  "projectDescription": "Python library for spectral mesh processing, splitting, and analysis utilities",
+  "theme": "palm",
+  "primaryColor": "#2563eb",
+  "lightColor": "#60a5fa",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/mesh-representation",
+              "concepts/laplacian-decomposition",
+              "concepts/spectral-geometry"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/mesh-splitting",
+              "guides/spectral-filtering",
+              "guides/heat-kernel-signature",
+              "guides/mesh-agglomeration"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Mesh Operations",
+            "pages": [
+              "api/types",
+              "api/utils",
+              "api/io"
+            ]
+          },
+          {
+            "group": "Spectral Processing",
+            "pages": [
+              "api/laplacian",
+              "api/decompose"
+            ]
+          },
+          {
+            "group": "Mesh Splitting",
+            "pages": [
+              "api/split"
+            ]
+          },
+          {
+            "group": "Analysis",
+            "pages": [
+              "api/agglomerate",
+              "api/graph",
+              "api/label-propagation"
+            ]
+          },
+          {
+            "group": "Domain-Specific",
+            "pages": [
+              "api/cave",
+              "api/pipeline",
+              "api/morphometry"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Spectral mesh decomposition using cotangent Laplacian",
+    "Heat Kernel Signature (HKS) computation for shape analysis",
+    "Mesh splitting and stitching for large-scale processing",
+    "Hierarchical mesh agglomeration with Ward clustering",
+    "B-spline spectral filtering for geometry processing",
+    "Graph-based mesh analysis and conversions"
+  ],
+  "publicApiSurface": [
+    "compute_hks",
+    "decompose_laplacian",
+    "decompose_mesh",
+    "cotangent_laplacian",
+    "spectral_geometry_filter",
+    "fit_mesh_split",
+    "apply_mesh_split",
+    "MeshStitcher",
+    "agglomerate_mesh",
+    "multicut_ward",
+    "condense_mesh_to_graph",
+    "label_propagation",
+    "interpret_mesh",
+    "mesh_to_adjacency",
+    "mesh_to_poly",
+    "poly_to_mesh",
+    "fix_mesh",
+    "project_points_to_mesh",
+    "chunked_hks_pipeline",
+    "condensed_hks_pipeline",
+    "component_morphometry_pipeline"
+  ]
+}
