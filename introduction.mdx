@@ -1,0 +1,131 @@
+---
+title: Introduction to MeshMash
+description: A Python library for spectral mesh processing and computational geometry
+---
+
+# Welcome to MeshMash
+
+MeshMash is a powerful Python library that provides advanced mesh processing utilities with a focus on spectral geometry methods. It enables you to analyze, decompose, and manipulate 3D meshes using cutting-edge algorithms from computational geometry.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Spectral Decomposition" icon="wave-square">
+    Compute Laplacian eigendecomposition and Heat Kernel Signatures (HKS) for geometric analysis
+  </Card>
+  
+  <Card title="Mesh Operations" icon="cube">
+    Extract components, subset meshes, fix topology, and perform complex mesh transformations
+  </Card>
+  
+  <Card title="Graph Processing" icon="diagram-project">
+    Convert meshes to graphs, compute adjacencies, and perform label propagation
+  </Card>
+  
+  <Card title="Advanced Splitting" icon="scissors">
+    Hierarchically split large meshes using spectral methods for parallel processing
+  </Card>
+</CardGroup>
+
+## What Makes MeshMash Unique?
+
+<AccordionGroup>
+  <Accordion title="Spectral Geometry Processing">
+    MeshMash implements state-of-the-art spectral methods including:
+    - Cotangent Laplacian computation with robust formulation
+    - Heat Kernel Signatures for multi-scale geometric features
+    - B-spline spectral filters for frequency-domain processing
+    - Band-by-band eigendecomposition for large meshes
+  </Accordion>
+
+  <Accordion title="Robust Mesh Processing">
+    Built-in support for:
+    - Non-manifold mesh handling via robust Laplacian
+    - Automatic mesh repair and topology fixing
+    - Connected component analysis and filtering
+    - Efficient sparse matrix operations
+  </Accordion>
+
+  <Accordion title="Scalable Architecture">
+    Designed for large-scale data:
+    - Hierarchical mesh splitting for parallel processing
+    - Cloud storage integration (Google Cloud, local filesystems)
+    - Memory-efficient sparse representations
+    - Chunked processing pipelines
+  </Accordion>
+</AccordionGroup>
+
+## Use Cases
+
+MeshMash is ideal for:
+
+- **3D Shape Analysis**: Extract geometric features for machine learning
+- **Mesh Segmentation**: Partition meshes using spectral clustering
+- **Neuroscience**: Process neuronal morphology and connectivity data
+- **Computer Graphics**: Analyze and filter mesh geometry in frequency domain
+- **Computational Biology**: Work with molecular surfaces and biological structures
+
+<Note>
+  MeshMash integrates seamlessly with popular libraries like NumPy, SciPy, PyVista, and gpytoolbox.
+</Note>
+
+## Core Capabilities
+
+### Laplacian Methods
+
+Compute cotangent Laplacian with optional robust formulation for non-manifold meshes:
+
+```python
+from meshmash import cotangent_laplacian
+
+# Standard cotangent Laplacian
+L, M = cotangent_laplacian(mesh)
+
+# Robust Laplacian for non-manifold meshes
+L, M = cotangent_laplacian(mesh, robust=True, mollify_factor=1e-5)
+```
+
+### Spectral Decomposition
+
+Decompose meshes into their spectral components:
+
+```python
+from meshmash import decompose_mesh
+
+eigenvalues, eigenvectors = decompose_mesh(
+    mesh, 
+    n_components=100,
+    robust=True
+)
+```
+
+### Mesh Utilities
+
+Powerful utilities for mesh manipulation:
+
+```python
+from meshmash import (
+    largest_mesh_component,
+    subset_mesh_by_indices,
+    mesh_to_adjacency,
+    combine_meshes
+)
+
+# Extract largest connected component
+largest_comp = largest_mesh_component(mesh)
+
+# Convert to graph adjacency matrix
+adj = mesh_to_adjacency(mesh)
+```
+
+## Ready to Get Started?
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install MeshMash with pip or conda
+  </Card>
+  
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Run your first mesh processing code
+  </Card>
+</CardGroup>

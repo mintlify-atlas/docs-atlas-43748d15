@@ -1,0 +1,128 @@
+---
+title: Graph
+description: Convert labeled meshes into graph representations with nodes and edges
+---
+
+The graph module provides functionality to convert labeled mesh data into graph structures, computing geometric properties like boundary lengths, edge widths, and areas.
+
+## Functions
+
+### compute_edge_widths
+
+Computes edge widths for a mesh using the inscribed circle radius of each triangle face.
+
+```python
+compute_edge_widths(mesh, mollify_factor: float = 0.0) -> csr_array
+```
+
+<ParamField path="mesh" type="tuple">
+  Mesh tuple of (vertices, faces) where vertices is an (n, 3) array and faces is an (m, 3) array of vertex indices
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="0.0">
+  Small value added to edge lengths to prevent numerical instability
+</ParamField>
+
+**Returns:** `csr_array` - Sparse adjacency matrix containing inscribed circle radii for each edge
+
+**Details:**
+
+This function uses the law of cotangents to compute the inscribed circle radius for each triangular face. The radius is computed as:
+
+```
+r = sqrt((s-a)(s-b)(s-c)/s)
+```
+
+where `a`, `b`, `c` are the edge lengths and `s` is the semiperimeter.
+
+**Example:**
+```python
+import numpy as np
+from meshmash import compute_edge_widths
+
+vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]])
+faces = np.array([[0, 1, 2], [1, 2, 3]])
+mesh = (vertices, faces)
+
+widths = compute_edge_widths(mesh, mollify_factor=1.0)
+print(widths.toarray())
+```
+
+---
+
+### condense_mesh_to_graph
+
+Condenses a labeled mesh into a graph representation with node and edge tables.
+
+```python
+condense_mesh_to_graph(
+    mesh,
+    labels,
+    add_component_features: bool = False
+) -> tuple[pd.DataFrame, pd.DataFrame]
+```
+
+<ParamField path="mesh" type="tuple">
+  Mesh tuple of (vertices, faces)
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray">
+  Cluster labels for each vertex. Vertices with label -1 are excluded from the graph.
+</ParamField>
+
+<ParamField path="add_component_features" type="bool" default="False">
+  If True, adds connected component information to node features
+</ParamField>
+
+**Returns:** `tuple[pd.DataFrame, pd.DataFrame]` - (node_table, edge_table)
+
+- **node_table**: DataFrame with columns `[x, y, z, area, n_vertices]` and optionally `[component_area, component_n_vertices]`
+- **edge_table**: DataFrame with columns `[source, target, boundary_length, count, edge_length]`
+
+**Details:**
+
+This function:
+1. Groups vertices by their cluster labels
+2. Computes aggregate geometric properties for each cluster (centroid, total area, vertex count)
+3. Identifies edges between clusters and computes boundary lengths
+4. Optionally adds connected component features
+
+**Example:**
+```python
+import numpy as np
+from meshmash import condense_mesh_to_graph
+
+# Create a simple mesh
+vertices = np.random.rand(100, 3)
+faces = np.random.randint(0, 100, (50, 3))
+mesh = (vertices, faces)
+
+# Cluster labels
+labels = np.random.randint(-1, 10, 100)
+
+# Convert to graph
+node_table, edge_table = condense_mesh_to_graph(
+    mesh, labels, add_component_features=True
+)
+
+print(f"Nodes: {len(node_table)}")
+print(f"Edges: {len(edge_table)}")
+print(node_table.head())
+print(edge_table.head())
+```
+
+**Node Table Schema:**
+
+- `x`, `y`, `z`: Mean coordinates (centroid) of all vertices in the cluster
+- `area`: Total surface area of the cluster
+- `n_vertices`: Number of vertices in the cluster
+- `component_area`: (optional) Total area of the connected component
+- `component_n_vertices`: (optional) Total vertices in the connected component
+
+**Edge Table Schema:**
+
+- `source`: Source node (cluster) ID
+- `target`: Target node (cluster) ID  
+- `boundary_length`: Total length of the boundary between clusters
+- `count`: Number of mesh edges crossing the boundary
+- `edge_length`: Euclidean distance between cluster centroids

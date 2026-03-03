@@ -1,0 +1,363 @@
+---
+title: Mesh Agglomeration
+description: Hierarchical clustering of mesh vertices based on geometric features using spatially-constrained Ward clustering
+---
+
+## Overview
+
+Mesh agglomeration clusters vertices into spatially-coherent regions based on feature similarity. Unlike standard clustering, it enforces spatial connectivity constraints to ensure clusters form contiguous regions on the mesh.
+
+This is particularly useful for:
+- Mesh segmentation and labeling
+- Multi-resolution analysis
+- Region-based processing
+- Feature aggregation
+
+## Basic Agglomeration
+
+<Steps>
+  <Step title="Compute features for your mesh">
+    Start with per-vertex features (e.g., from HKS, geometry vectors, or custom features):
+
+    ```python
+    from meshmash import compute_hks, agglomerate_mesh
+    import numpy as np
+
+    # Compute features
+    mesh = (vertices, faces)
+    features = compute_hks(mesh, max_eigenvalue=1e-8, n_components=32)
+
+    # features: (n_vertices, n_features)
+    ```
+  </Step>
+
+  <Step title="Agglomerate vertices">
+    Cluster vertices based on feature similarity with spatial constraints:
+
+    ```python
+    from meshmash.agglomerate import agglomerate_mesh
+
+    labels = agglomerate_mesh(
+        mesh,
+        features,
+        distance_thresholds=10.0  # Single threshold
+    )
+
+    # labels: (n_vertices, 1) array of cluster labels
+    ```
+  </Step>
+
+  <Step title="Use the labels">
+    Labels indicate which cluster each vertex belongs to:
+
+    ```python
+    # Get unique clusters
+    unique_labels = np.unique(labels[labels != -1])
+    n_clusters = len(unique_labels)
+    print(f"Created {n_clusters} clusters")
+
+    # Get all vertices in cluster 5
+    cluster_5_vertices = np.where(labels[:, 0] == 5)[0]
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  Vertices with label `-1` have invalid features (NaN or infinite) and are excluded from clustering. The agglomeration only operates on valid, connected vertices.
+</Note>
+
+## Multi-Resolution Clustering
+
+Compute labels at multiple distance thresholds simultaneously:
+
+```python
+from meshmash.agglomerate import agglomerate_mesh
+
+# Multiple thresholds for hierarchical segmentation
+thresholds = [5.0, 10.0, 20.0, 40.0]
+
+labels = agglomerate_mesh(
+    mesh,
+    features,
+    distance_thresholds=thresholds
+)
+
+# labels: (n_vertices, 4) array
+# labels[:, 0] - finest segmentation (threshold=5.0)
+# labels[:, 1] - coarser segmentation (threshold=10.0)
+# etc.
+```
+
+This computes the Ward tree once and cuts it at multiple thresholds, which is much faster than running agglomeration multiple times.
+
+## How It Works
+
+The agglomeration uses constrained Ward hierarchical clustering:
+
+1. **Connectivity constraint**: Only adjacent vertices (connected by an edge) can be merged
+2. **Ward linkage**: Merges minimize within-cluster variance
+3. **Distance threshold**: Stops merging when cluster distances exceed threshold
+
+```python
+from meshmash.agglomerate import multicut_ward
+from meshmash.utils import mesh_to_adjacency
+
+# Get mesh adjacency
+adj = mesh_to_adjacency(mesh)
+connectivity = (adj + adj.T) > 0
+
+# Run constrained Ward clustering
+labels_by_distance = multicut_ward(
+    features,
+    connectivity=connectivity,
+    distance_thresholds=[5.0, 10.0, 20.0]
+)
+
+# labels_by_distance: (n_vertices, n_thresholds)
+```
+
+**Returns:** `np.ndarray` of shape `(n_vertices, n_thresholds)` with cluster labels
+
+## Handling Split Meshes
+
+For large meshes processed with `MeshStitcher`, use `agglomerate_split_mesh` to handle submesh boundaries correctly:
+
+```python
+from meshmash import MeshStitcher
+from meshmash.agglomerate import agglomerate_split_mesh
+
+# Split mesh
+stitcher = MeshStitcher(mesh, n_jobs=-1)
+stitcher.split_mesh(max_vertex_threshold=20_000)
+
+# Compute features on split mesh
+features = stitcher.apply(
+    lambda m: compute_hks(m, max_eigenvalue=1e-8, n_components=32),
+    stitch=True
+)
+
+# Agglomerate with split-aware function
+labels = agglomerate_split_mesh(
+    stitcher,
+    features,
+    distance_thresholds=[10.0, 20.0]
+)
+
+# labels: (n_vertices, 2) for the full mesh
+```
+
+**Signature:** `agglomerate_split_mesh(splitter: MeshStitcher, features: np.ndarray, distance_thresholds: Union[list, int, float]) -> np.ndarray`
+
+This function:
+- Agglomerates each submesh independently
+- Fixes label conflicts at submesh boundaries
+- Ensures global label consistency
+
+<Warning>
+  Always use `agglomerate_split_mesh` when working with split meshes. The standard `agglomerate_mesh` will produce incorrect labels because clusters from different submeshes may have overlapping label numbers.
+</Warning>
+
+## Feature Aggregation
+
+After clustering, aggregate features to cluster centroids:
+
+```python
+from meshmash.agglomerate import aggregate_features
+import pandas as pd
+
+# Original features and cluster labels
+features = compute_hks(mesh, max_eigenvalue=1e-8, n_components=32)
+labels = agglomerate_mesh(mesh, features, distance_thresholds=10.0)[:, 0]
+
+# Aggregate features by cluster (mean)
+agg_features = aggregate_features(
+    features,
+    labels,
+    func='mean'  # Can also be 'median', 'min', 'max', etc.
+)
+
+# agg_features: DataFrame with shape (n_clusters, n_features)
+print(agg_features.head())
+```
+
+**Signature:** `aggregate_features(features, labels, weights=None, func='mean') -> pd.DataFrame`
+
+### Weighted Aggregation
+
+Weight features by vertex area or other quantities:
+
+```python
+from meshmash import compute_vertex_areas
+
+# Compute vertex areas as weights
+areas = compute_vertex_areas(mesh, robust=True)
+
+# Weighted mean (larger vertices contribute more)
+agg_features = aggregate_features(
+    features,
+    labels,
+    weights=areas,
+    func='mean'
+)
+```
+
+## Expanding Cluster Features
+
+Map aggregated cluster features back to all vertices:
+
+```python
+from meshmash.agglomerate import blow_up_features
+
+# Aggregate to clusters
+agg_features_df = aggregate_features(features, labels)
+
+# Expand back to per-vertex (each vertex gets its cluster's features)
+expanded_features = blow_up_features(agg_features_df, labels)
+
+# expanded_features: DataFrame with shape (n_vertices, n_features)
+# All vertices in the same cluster have identical feature values
+```
+
+**Signature:** `blow_up_features(agg_features_df: pd.DataFrame, labels: np.ndarray) -> pd.DataFrame`
+
+This is useful for:
+- Visualizing cluster-level features on the mesh
+- Using cluster features in per-vertex computations
+- Creating piecewise-constant fields
+
+## Complete Workflow Example
+
+Segment a mesh into regions with similar geometric properties:
+
+```python
+from meshmash import compute_hks, MeshStitcher
+from meshmash.agglomerate import agglomerate_split_mesh, aggregate_features
+import numpy as np
+
+# Large mesh
+mesh = (vertices, faces)
+
+# 1. Split mesh for parallel processing
+stitcher = MeshStitcher(mesh, n_jobs=-1, verbose=True)
+stitcher.split_mesh(max_vertex_threshold=30_000, overlap_distance=10_000)
+
+# 2. Compute geometric features in parallel
+hks_features = stitcher.apply(
+    lambda m: compute_hks(m, max_eigenvalue=1e-8, n_components=64, robust=True),
+    stitch=True
+)
+
+# 3. Multi-resolution agglomeration
+thresholds = [5.0, 10.0, 20.0, 40.0, 80.0]
+labels = agglomerate_split_mesh(
+    stitcher,
+    hks_features,
+    distance_thresholds=thresholds
+)
+
+# 4. Analyze segmentation at each resolution
+for i, threshold in enumerate(thresholds):
+    level_labels = labels[:, i]
+    n_clusters = len(np.unique(level_labels[level_labels != -1]))
+    print(f"Threshold {threshold}: {n_clusters} clusters")
+    
+    # Aggregate features for this resolution
+    cluster_features = aggregate_features(hks_features, level_labels)
+    print(f"  Cluster feature shape: {cluster_features.shape}")
+
+# 5. Use intermediate resolution for further processing
+mid_resolution_labels = labels[:, 2]  # threshold=20.0
+
+# Extract cluster 10
+cluster_10_mask = mid_resolution_labels == 10
+cluster_10_vertices = vertices[cluster_10_mask]
+print(f"Cluster 10 has {cluster_10_vertices.shape[0]} vertices")
+```
+
+## Choosing Distance Thresholds
+
+The distance threshold controls cluster granularity:
+
+- **Small thresholds (1-10)**: Many fine-grained clusters, sensitive to local feature variations
+- **Medium thresholds (10-50)**: Balanced segmentation, good for semantic regions
+- **Large thresholds (50-200)**: Coarse segmentation, captures major shape parts
+
+```python
+# Find good thresholds by inspecting the dendrogram
+from sklearn.cluster import ward_tree
+from meshmash.utils import mesh_to_adjacency
+
+adj = mesh_to_adjacency(mesh)
+connectivity = (adj + adj.T) > 0
+
+children, _, n_leaves, _, distances = ward_tree(
+    features,
+    connectivity=connectivity,
+    return_distance=True
+)
+
+# Plot merge distances to find natural thresholds
+import matplotlib.pyplot as plt
+plt.figure(figsize=(10, 4))
+plt.plot(sorted(distances, reverse=True)[:100])
+plt.xlabel('Merge step')
+plt.ylabel('Distance')
+plt.title('Ward clustering dendrogram (top 100 merges)')
+plt.show()
+
+# Large jumps in distance suggest natural thresholds
+```
+
+## Handling Invalid Features
+
+The agglomeration gracefully handles vertices with invalid features:
+
+```python
+# Some features may be NaN (e.g., from failed computations)
+features_with_nans = features.copy()
+features_with_nans[100:200, :] = np.nan
+
+labels = agglomerate_mesh(
+    mesh,
+    features_with_nans,
+    distance_thresholds=10.0
+)
+
+# Vertices 100-199 get label -1
+assert np.all(labels[100:200, 0] == -1)
+
+# Other vertices are clustered normally
+valid_labels = labels[labels[:, 0] != -1, 0]
+print(f"Clustered {len(valid_labels)} valid vertices")
+```
+
+The algorithm:
+1. Identifies vertices with any NaN or infinite feature values
+2. Subsets the mesh to only valid vertices
+3. Agglomerates the subset
+4. Returns labels with `-1` for invalid vertices
+
+## Performance Considerations
+
+**For small to medium meshes (under 100k vertices):**
+```python
+labels = agglomerate_mesh(mesh, features, distance_thresholds=10.0)
+```
+
+**For large meshes (100k-1M vertices):**
+```python
+# Use mesh splitting
+stitcher = MeshStitcher(mesh, n_jobs=-1)
+stitcher.split_mesh(max_vertex_threshold=50_000)
+labels = agglomerate_split_mesh(stitcher, features, distance_thresholds=10.0)
+```
+
+**For very large meshes (>1M vertices):**
+```python
+# Smaller submeshes + parallel processing
+stitcher = MeshStitcher(mesh, n_jobs=-1, verbose=True)
+stitcher.split_mesh(max_vertex_threshold=30_000)
+labels = agglomerate_split_mesh(stitcher, features, distance_thresholds=10.0)
+```
+
+The bottleneck is the Ward tree computation, which is O(n² log n) in the worst case but much faster with sparse connectivity.

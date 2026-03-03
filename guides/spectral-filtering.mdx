@@ -1,0 +1,293 @@
+---
+title: Spectral Filtering
+description: Apply spectral filters to mesh geometry using Laplacian eigendecomposition for geometry processing and feature extraction
+---
+
+## Overview
+
+Spectral filtering applies filters in the frequency domain of mesh geometry, analogous to signal processing on graphs. MeshMash computes the eigendecomposition of the mesh Laplacian and applies custom filters to extract multi-scale geometric features.
+
+This is the foundation for computing Heat Kernel Signatures (HKS), geometry vectors, and other spectral descriptors.
+
+## Basic Eigendecomposition
+
+<Steps>
+  <Step title="Import and prepare your mesh">
+    ```python
+    from meshmash import decompose_mesh
+    import numpy as np
+
+    # Mesh as (vertices, faces) tuple
+    mesh = (vertices, faces)
+    ```
+  </Step>
+
+  <Step title="Decompose the Laplacian">
+    Compute eigenvalues and eigenvectors:
+
+    ```python
+    eigenvalues, eigenvectors = decompose_mesh(
+        mesh,
+        n_components=100,      # Number of eigenpairs to compute
+        robust=True,           # Use robust Laplacian
+        mollify_factor=1e-5,   # Numerical stability
+        tol=1e-10             # Eigenvalue solver tolerance
+    )
+    ```
+
+    **Returns:**
+    - `eigenvalues`: `np.ndarray` of shape `(n_components,)` - Sorted eigenvalues
+    - `eigenvectors`: `np.ndarray` of shape `(n_vertices, n_components)` - Corresponding eigenvectors
+  </Step>
+
+  <Step title="Use the eigenvectors">
+    Eigenvectors represent intrinsic geometric modes:
+
+    ```python
+    # First eigenvector (constant) - usually dropped
+    # Second eigenvector (Fiedler vector) - primary partition direction
+    fiedler = eigenvectors[:, 1]
+
+    # Higher eigenvectors capture finer geometric details
+    geometric_modes = eigenvectors[:, 2:20]
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The first eigenvalue is always near zero with a constant eigenvector (scaled by vertex areas). It's often excluded from analysis using `drop_first=True` in filtering functions.
+</Note>
+
+## Spectral Geometry Filtering
+
+Apply custom filters to extract geometric features:
+
+```python
+from meshmash.decompose import spectral_geometry_filter
+
+# Define a custom filter function
+def my_filter(eigenvalues):
+    """
+    Filter function that takes eigenvalues and returns filter coefficients.
+    
+    Parameters
+    ----------
+    eigenvalues : np.ndarray
+        Array of shape (n_eigenvalues,)
+    
+    Returns
+    -------
+    np.ndarray
+        Array of shape (n_filters, n_eigenvalues) with filter coefficients
+    """
+    # Example: Create 10 filters that respond to different frequency bands
+    n_filters = 10
+    coefs = np.zeros((n_filters, len(eigenvalues)))
+    
+    for i in range(n_filters):
+        # Gaussian filters at different scales
+        sigma = 1e-9 * (2 ** i)
+        coefs[i] = np.exp(-eigenvalues / sigma)
+    
+    return coefs
+
+# Apply the filter
+features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    max_eigenvalue=1e-8,      # Compute up to this eigenvalue
+    band_size=50,             # Eigenvalues per band
+    truncate_extra=True,      # Truncate beyond max_eigenvalue
+    drop_first=True,          # Drop constant eigenvector
+    decomposition_dtype=np.float64,
+    robust=True,
+    verbose=True
+)
+
+# features: (n_vertices, n_filters)
+```
+
+**Signature:** `spectral_geometry_filter(mesh, filter, max_eigenvalue=1e-8, band_size=50, truncate_extra=True, drop_first=True, decomposition_dtype=np.float64, robust=True, mollify_factor=1e-5, verbose=False) -> np.ndarray`
+
+## Band-by-Band Decomposition
+
+For large eigenvalue ranges, MeshMash uses an efficient band-by-band algorithm that computes eigenvalues in overlapping bands:
+
+```python
+from meshmash.decompose import decompose_laplacian_by_bands
+from meshmash import cotangent_laplacian
+
+# First compute the Laplacian matrices
+L, M = cotangent_laplacian(mesh, robust=True)
+
+# Decompose by bands
+eigenvalues, eigenvectors = decompose_laplacian_by_bands(
+    L, M,
+    max_eigenvalue=1e-8,     # Stop at this eigenvalue
+    band_size=50,            # Eigenvalues per band
+    truncate_extra=True,     # Truncate beyond max
+    verbose=True
+)
+```
+
+**How it works:**
+1. Computes eigenvalues in bands using shift-invert mode with sigma near band center
+2. Each band overlaps with the previous to ensure no gaps
+3. Automatically adjusts sigma based on eigenvalue bandwidth
+4. Much faster than computing all eigenvalues at once for large ranges
+
+<Note>
+  The band-by-band algorithm is based on "Spectral Geometry Processing with Manifold Harmonics" (Vallet and Levy, 2008). It's particularly efficient when `max_eigenvalue` is much smaller than the largest eigenvalue of the Laplacian.
+</Note>
+
+## B-Spline Basis Filters
+
+Create smooth spectral filters using B-spline basis functions:
+
+```python
+from meshmash.decompose import construct_bspline_filter, compute_geometry_vectors
+
+# Create B-spline filter with 32 basis functions
+filter_func = construct_bspline_filter(
+    e_min=0.0,
+    e_max=1e-8,
+    n_components=32
+)
+
+# Or use the convenience function
+geometry_vectors = compute_geometry_vectors(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32,          # Number of B-spline bases
+    band_size=50,
+    drop_first=True,
+    robust=True,
+    decomposition_dtype=np.float64,
+    verbose=True
+)
+
+# geometry_vectors: (n_vertices, 32)
+```
+
+B-spline filters provide smooth, overlapping frequency responses that cover the eigenvalue range uniformly.
+
+## Working with Laplacian Matrices Directly
+
+For advanced use cases, work directly with the Laplacian:
+
+```python
+from meshmash import cotangent_laplacian
+from meshmash.decompose import decompose_laplacian
+import scipy.sparse as sparse
+
+# Compute cotangent Laplacian
+L, M = cotangent_laplacian(
+    mesh,
+    robust=True,           # Robust Laplacian for non-manifold meshes
+    mollify_factor=1e-5    # Numerical mollification
+)
+
+# L: (n_vertices, n_vertices) sparse CSC array - cotangent weights
+# M: (n_vertices, n_vertices) sparse diagonal array - vertex areas
+
+# Solve generalized eigenvalue problem: L @ v = λ @ M @ v
+eigenvalues, eigenvectors = decompose_laplacian(
+    L, M,
+    n_components=100,
+    sigma=-1e-10,          # Shift for shift-invert mode
+    tol=1e-10,             # Solver tolerance
+    prefactor='lu'         # Use LU prefactorization for speed
+)
+```
+
+**Parameters for `decompose_laplacian`:**
+- `L`: `sparse matrix` - Laplacian matrix (cotangent weights)
+- `M`: `sparse matrix` - Mass matrix (vertex areas)
+- `n_components`: `int` - Number of eigenpairs to compute
+- `sigma`: `float` - Shift parameter for shift-invert mode
+- `tol`: `float` - Convergence tolerance
+- `prefactor`: `Optional[str]` - Prefactorization method ('lu' or None)
+
+<Warning>
+  When using `robust=False`, ensure your mesh is a clean manifold. Non-manifold edges, self-intersections, or degenerate triangles can cause numerical issues in the standard cotangent Laplacian.
+</Warning>
+
+## Return Eigenvectors Without Filtering
+
+Get raw eigenvectors for custom processing:
+
+```python
+eigenvalues, eigenvectors = spectral_geometry_filter(
+    mesh,
+    filter=None,  # No filtering - return eigenvectors directly
+    max_eigenvalue=1e-8,
+    drop_first=True,
+    robust=True,
+    verbose=True
+)
+
+# eigenvalues: (n_eigenvalues,)
+# eigenvectors: (n_vertices, n_eigenvalues)
+```
+
+## Precision and Performance
+
+Control numerical precision for speed vs. accuracy trade-offs:
+
+```python
+# Float32 for speed (less accurate)
+fast_features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    decomposition_dtype=np.float32,  # Faster, less precise
+    max_eigenvalue=1e-8
+)
+
+# Float64 for accuracy (default)
+accurate_features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    decomposition_dtype=np.float64,  # Slower, more precise
+    max_eigenvalue=1e-8
+)
+```
+
+The tolerance parameters are automatically adjusted based on dtype:
+- `float32`: `tol=1e-8`, `eigen_tol=1e-7`
+- `float64`: `tol=1e-12`, `eigen_tol=1e-12`
+
+## Common Filtering Patterns
+
+### Low-pass Filter (Smoothing)
+
+```python
+def lowpass_filter(eigenvalues, cutoff=1e-9):
+    """Suppress high frequencies."""
+    response = (eigenvalues < cutoff).astype(float)
+    return response[np.newaxis, :]  # Shape: (1, n_eigenvalues)
+
+smooth_features = spectral_geometry_filter(mesh, filter=lowpass_filter)
+```
+
+### Band-pass Filter
+
+```python
+def bandpass_filter(eigenvalues, low=1e-10, high=1e-9):
+    """Extract specific frequency band."""
+    response = ((eigenvalues >= low) & (eigenvalues <= high)).astype(float)
+    return response[np.newaxis, :]
+
+band_features = spectral_geometry_filter(mesh, filter=bandpass_filter)
+```
+
+### Multi-scale Gaussian Pyramid
+
+```python
+def gaussian_pyramid(eigenvalues, n_scales=8):
+    """Create multi-scale Gaussian filters."""
+    scales = np.geomspace(1e-10, 1e-8, n_scales)
+    coefs = np.exp(-np.outer(scales, eigenvalues))
+    return coefs
+
+multiscale_features = spectral_geometry_filter(mesh, filter=gaussian_pyramid)
+```

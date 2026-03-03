@@ -1,0 +1,193 @@
+---
+title: 'Mesh Representation'
+description: 'Understanding the mesh data format used throughout MeshMash'
+---
+
+## Overview
+
+MeshMash uses a simple, flexible representation for triangular meshes that enables efficient spectral processing. The library accepts meshes in multiple formats but internally works with a standardized tuple-based representation.
+
+## Core Mesh Format
+
+At its core, a mesh in MeshMash is represented as a tuple of two NumPy arrays:
+
+```python
+mesh = (vertices, faces)
+```
+
+### Vertices
+
+The vertices array is an `(n, 3)` NumPy array where:
+- `n` is the number of vertices in the mesh
+- Each row contains the `(x, y, z)` coordinates of a vertex
+
+```python
+import numpy as np
+
+# Example: 4 vertices forming a tetrahedron
+vertices = np.array([
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [0.5, 1.0, 0.0],
+    [0.5, 0.5, 1.0]
+])
+```
+
+### Faces
+
+The faces array is an `(m, 3)` NumPy array where:
+- `m` is the number of triangular faces
+- Each row contains indices into the vertices array that form a triangle
+
+```python
+# Example: 4 faces forming a tetrahedron
+faces = np.array([
+    [0, 1, 2],
+    [0, 1, 3],
+    [1, 2, 3],
+    [0, 2, 3]
+])
+```
+
+## Mesh Interpretation
+
+MeshMash provides the `interpret_mesh()` function to convert various mesh formats into the standard representation:
+
+```python
+from meshmash import interpret_mesh
+
+# Works with tuples
+mesh = (vertices, faces)
+v, f = interpret_mesh(mesh)
+
+# Works with objects that have vertices and faces attributes
+class MyMesh:
+    def __init__(self, vertices, faces):
+        self.vertices = vertices
+        self.faces = faces
+
+mesh_obj = MyMesh(vertices, faces)
+v, f = interpret_mesh(mesh_obj)
+```
+
+### Type Definition
+
+The `Mesh` type in MeshMash is defined as:
+
+```python
+from typing import Any, Tuple, Union
+import numpy as np
+
+type Mesh = Union[tuple[np.ndarray, np.ndarray], Any]
+```
+
+This flexible type allows for both tuple-based meshes and objects with `vertices` and `faces` attributes.
+
+<Note>
+The `interpret_mesh()` function will raise a `ValueError` if the input is neither a tuple nor an object with `vertices` and `faces` attributes.
+</Note>
+
+## Working with Mesh Data
+
+### Converting to PyVista
+
+MeshMash integrates with PyVista for visualization and additional mesh operations:
+
+```python
+from meshmash import mesh_to_poly
+import pyvista as pv
+
+# Convert to PyVista PolyData
+poly = mesh_to_poly(mesh)
+poly.plot()
+```
+
+### Extracting Mesh Edges
+
+Get the edges of a mesh as an array:
+
+```python
+from meshmash import mesh_to_edges
+
+edges = mesh_to_edges(mesh)
+# Returns (e, 2) array where each row is [source_vertex, target_vertex]
+```
+
+### Creating an Adjacency Matrix
+
+Convert a mesh to a sparse adjacency matrix with edge lengths as weights:
+
+```python
+from meshmash import mesh_to_adjacency
+
+adj = mesh_to_adjacency(mesh)
+# Returns scipy.sparse.csr_array with edge lengths
+```
+
+## Mesh Utilities
+
+### Subsetting Meshes
+
+Extract a portion of a mesh based on vertex indices:
+
+```python
+from meshmash import subset_mesh_by_indices
+import numpy as np
+
+# Select specific vertices
+indices = np.array([0, 1, 2, 10, 11, 12])
+submesh = subset_mesh_by_indices(mesh, indices)
+
+# Or use a boolean mask
+mask = vertex_labels == 5
+submesh = subset_mesh_by_indices(mesh, mask)
+```
+
+### Combining Meshes
+
+Merge multiple meshes into a single mesh:
+
+```python
+from meshmash import combine_meshes
+
+meshes = [mesh1, mesh2, mesh3]
+combined = combine_meshes(meshes)
+```
+
+### Finding Connected Components
+
+Get the largest connected component:
+
+```python
+from meshmash import largest_mesh_component
+
+largest = largest_mesh_component(mesh)
+```
+
+Or iterate over all components above a size threshold:
+
+```python
+from meshmash import mesh_connected_components
+
+for component_mesh in mesh_connected_components(mesh, size_threshold=100):
+    # Process each component
+    pass
+```
+
+## Best Practices
+
+<Info>
+**Memory Efficiency**: The tuple-based representation is memory-efficient and works well with NumPy's vectorized operations. For very large meshes, consider using appropriate data types (e.g., `np.float32` instead of `np.float64`).
+</Info>
+
+<Warning>
+**Index Consistency**: When subsetting or combining meshes, MeshMash automatically handles vertex index remapping. However, any external vertex-indexed data (like labels or features) must be handled separately.
+</Warning>
+
+## Related Functions
+
+- `interpret_mesh()` - Convert various formats to standard mesh tuple
+- `mesh_to_poly()` - Convert to PyVista PolyData  
+- `poly_to_mesh()` - Convert from PyVista to mesh tuple
+- `fix_mesh()` - Repair mesh topology using pymeshfix
+- `scale_mesh()` - Scale mesh coordinates by a factor

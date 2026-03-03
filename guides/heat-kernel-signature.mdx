@@ -1,0 +1,315 @@
+---
+title: Heat Kernel Signature
+description: Compute Heat Kernel Signatures (HKS) for multi-scale intrinsic shape descriptors
+---
+
+## Overview
+
+The Heat Kernel Signature (HKS) is a powerful intrinsic shape descriptor that captures geometric information at multiple scales. It's based on the heat diffusion equation on the mesh and is invariant to isometric deformations, making it ideal for shape matching and analysis.
+
+HKS measures how heat diffuses from each point over time, encoding both local and global geometric structure.
+
+## Basic Usage
+
+<Steps>
+  <Step title="Import and prepare your mesh">
+    ```python
+    from meshmash import compute_hks
+    import numpy as np
+
+    # Mesh as (vertices, faces)
+    mesh = (vertices, faces)
+    ```
+  </Step>
+
+  <Step title="Compute HKS features">
+    ```python
+    hks = compute_hks(
+        mesh,
+        max_eigenvalue=1e-8,     # Eigenvalue range to compute
+        t_min=None,              # Auto-detect min time scale
+        t_max=None,              # Auto-detect max time scale
+        n_components=32,         # Number of time scales
+        robust=True,             # Use robust Laplacian
+        verbose=True
+    )
+
+    # hks: (n_vertices, n_components) array
+    ```
+  </Step>
+
+  <Step title="Use the features">
+    Each column represents heat diffusion at a different time scale:
+
+    ```python
+    # HKS at the shortest time scale (local features)
+    local_hks = hks[:, 0]
+
+    # HKS at the longest time scale (global features)
+    global_hks = hks[:, -1]
+
+    # Use all scales for shape matching
+    from sklearn.neighbors import NearestNeighbors
+    nn = NearestNeighbors(n_neighbors=5)
+    nn.fit(hks)
+    distances, indices = nn.kneighbors(hks)
+    ```
+  </Step>
+</Steps>
+
+## Understanding Time Scales
+
+HKS is computed at logarithmically-spaced time scales between `t_min` and `t_max`:
+
+```python
+import numpy as np
+
+hks = compute_hks(
+    mesh,
+    t_min=1e-6,              # Shortest time (fine details)
+    t_max=1e-3,              # Longest time (coarse structure)
+    n_components=64,         # More scales = more detail
+    max_eigenvalue=1e-8
+)
+
+# Time scales are logarithmically spaced
+scales = np.geomspace(1e-6, 1e-3, 64)
+```
+
+**Time scale interpretation:**
+- **Small t (1e-6 to 1e-5)**: Captures local geometry - vertices with similar local curvature have similar HKS
+- **Medium t (1e-5 to 1e-4)**: Captures regional structure - vertices in similar local neighborhoods
+- **Large t (1e-4 to 1e-3)**: Captures global position - vertices in similar global locations
+
+<Note>
+  When `t_min` and `t_max` are `None`, MeshMash automatically selects appropriate scales based on the eigenvalue spectrum. This is recommended for most use cases.
+</Note>
+
+## Mathematical Background
+
+HKS at vertex i and time t is defined as:
+
+```
+HKS(i, t) = Σ_k exp(-λ_k * t) * φ_k(i)²
+```
+
+Where:
+- `λ_k` are eigenvalues of the Laplace-Beltrami operator
+- `φ_k` are the corresponding eigenfunctions (eigenvectors)
+- `t` is the diffusion time
+
+MeshMash computes this efficiently using the spectral filtering framework:
+
+```python
+from meshmash.decompose import get_hks_filter, spectral_geometry_filter
+
+# Create HKS filter manually
+filter_func = get_hks_filter(
+    t_min=1e-6,
+    t_max=1e-3,
+    n_scales=32,
+    dtype=np.float64
+)
+
+# Apply using spectral filtering
+hks = spectral_geometry_filter(
+    mesh,
+    filter=filter_func,
+    max_eigenvalue=1e-8,
+    drop_first=True,  # Drop constant eigenfunction
+    robust=True
+)
+```
+
+## Advanced Parameters
+
+### Band Size
+
+Control eigenvalue computation granularity:
+
+```python
+hks = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    band_size=100,  # Compute 100 eigenvalues at a time
+    n_components=32
+)
+```
+
+Larger `band_size` means fewer iterations but more memory per iteration.
+
+### Truncation
+
+Control whether to truncate beyond `max_eigenvalue`:
+
+```python
+hks = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    truncate_extra=True,  # Truncate exactly at max_eigenvalue
+    n_components=32
+)
+```
+
+When `True`, the algorithm stops precisely at `max_eigenvalue`. When `False`, it may overshoot by up to one band.
+
+### Numerical Precision
+
+Choose precision for speed vs. accuracy:
+
+```python
+# Fast but less accurate
+hks_fast = compute_hks(
+    mesh,
+    decomposition_dtype=np.float32,  # Single precision
+    max_eigenvalue=1e-8,
+    n_components=32
+)
+
+# Slow but more accurate (default)
+hks_accurate = compute_hks(
+    mesh,
+    decomposition_dtype=np.float64,  # Double precision
+    max_eigenvalue=1e-8,
+    n_components=32
+)
+```
+
+### First Eigenfunction
+
+Control whether to drop the constant eigenfunction:
+
+```python
+hks = compute_hks(
+    mesh,
+    drop_first=False,  # Include constant eigenfunction
+    max_eigenvalue=1e-8,
+    n_components=32
+)
+```
+
+The first eigenfunction is constant (scaled by vertex areas) and typically doesn't contribute meaningful shape information.
+
+## Robust Laplacian
+
+For non-manifold or noisy meshes, use the robust Laplacian:
+
+```python
+hks = compute_hks(
+    mesh,
+    robust=True,              # Enable robust Laplacian
+    mollify_factor=1e-5,      # Numerical mollification
+    max_eigenvalue=1e-8,
+    n_components=32
+)
+```
+
+The robust Laplacian (from Sharp and Crane, 2020) handles:
+- Non-manifold edges
+- Boundary vertices
+- Nearly-degenerate triangles
+- Self-intersections
+
+<Warning>
+  If you encounter numerical errors with `robust=False`, try setting `robust=True`. The robust Laplacian adds minimal overhead and significantly improves stability.
+</Warning>
+
+## Complete Example: Shape Matching
+
+Use HKS for point-to-point correspondence:
+
+```python
+from meshmash import compute_hks
+import numpy as np
+from scipy.spatial.distance import cdist
+
+# Two meshes to match (e.g., different poses of same shape)
+mesh1 = (vertices1, faces1)
+mesh2 = (vertices2, faces2)
+
+# Compute HKS for both
+hks1 = compute_hks(mesh1, max_eigenvalue=1e-8, n_components=64, robust=True)
+hks2 = compute_hks(mesh2, max_eigenvalue=1e-8, n_components=64, robust=True)
+
+# Find correspondences using nearest neighbors in HKS space
+distances = cdist(hks1, hks2, metric='euclidean')
+correspondences = np.argmin(distances, axis=1)
+
+# correspondences[i] is the index in mesh2 that best matches vertex i in mesh1
+print(f"Vertex 0 in mesh1 corresponds to vertex {correspondences[0]} in mesh2")
+
+# Evaluate match quality
+match_scores = np.min(distances, axis=1)
+confident_matches = match_scores < np.percentile(match_scores, 10)
+print(f"Found {confident_matches.sum()} confident matches")
+```
+
+## Visualization
+
+Visualize HKS at different scales:
+
+```python
+import matplotlib.pyplot as plt
+
+hks = compute_hks(mesh, n_components=32, max_eigenvalue=1e-8)
+
+# Plot HKS at different time scales
+fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+scale_indices = [0, 4, 8, 12, 16, 20, 24, 28]
+
+for idx, ax in zip(scale_indices, axes.flat):
+    # Visualize on mesh (pseudo-code, depends on your visualization library)
+    # ax.tricontourf(vertices[:, 0], vertices[:, 1], faces, hks[:, idx])
+    ax.set_title(f'HKS scale {idx}')
+    
+plt.tight_layout()
+plt.show()
+```
+
+## Performance Tips
+
+1. **Choose appropriate `max_eigenvalue`**: Smaller values compute faster but may miss coarse-scale features. `1e-8` to `1e-7` works well for most meshes.
+
+2. **Adjust `n_components`**: More scales provide richer descriptors but increase computation time. 32-64 scales typically suffice.
+
+3. **Use mesh splitting for large meshes**:
+
+```python
+from meshmash import MeshStitcher
+
+# Split mesh and compute HKS in parallel
+stitcher = MeshStitcher(mesh, n_jobs=-1)
+stitcher.split_mesh(max_vertex_threshold=20_000)
+
+hks = stitcher.apply(
+    lambda m: compute_hks(m, max_eigenvalue=1e-8, n_components=32),
+    stitch=True
+)
+```
+
+4. **Cache eigendecompositions**: If computing HKS multiple times with different parameters, cache the Laplacian:
+
+```python
+from meshmash import cotangent_laplacian
+from meshmash.decompose import spectral_geometry_filter, get_hks_filter
+
+# Compute Laplacian once
+L, M = cotangent_laplacian(mesh, robust=True)
+
+# Reuse for different HKS configurations
+filter1 = get_hks_filter(t_min=1e-6, t_max=1e-3, n_scales=32)
+hks1 = spectral_geometry_filter((L, M), filter=filter1, max_eigenvalue=1e-8)
+
+filter2 = get_hks_filter(t_min=1e-5, t_max=1e-2, n_scales=64)
+hks2 = spectral_geometry_filter((L, M), filter=filter2, max_eigenvalue=1e-7)
+```
+
+## References
+
+HKS is described in:
+
+> Sun, J., Ovsjanikov, M., & Guibas, L. (2009). A Concise and Provably Informative Multi-Scale Signature Based on Heat Diffusion. *Computer Graphics Forum*, 28(5), 1383-1392.
+
+The band-by-band eigendecomposition follows:
+
+> Vallet, B., & Lévy, B. (2008). Spectral Geometry Processing with Manifold Harmonics. *Computer Graphics Forum*, 27(2), 251-260.

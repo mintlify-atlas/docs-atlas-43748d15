@@ -1,0 +1,388 @@
+---
+title: 'I/O'
+description: 'Input/output functions for saving and loading mesh data and features'
+---
+
+## Path Interpretation
+
+### interpret_path
+
+```python
+def interpret_path(path: Union[str, Path], **kwargs) -> Path
+```
+
+Interprets a file path and returns a CloudFiles instance for cloud or local storage.
+
+<ParamField path="path" type="Union[str, Path]">
+  File path (supports local paths, gs:// for Google Cloud Storage, file:// for local files)
+</ParamField>
+
+<ParamField path="**kwargs" type="dict">
+  Additional keyword arguments passed to CloudFiles
+</ParamField>
+
+**Returns:** `Tuple[CloudFiles, str]`
+- CloudFiles instance
+- File name (or None if path is a directory)
+
+```python Example
+from meshmash.io import interpret_path
+
+# Google Cloud Storage
+cf, filename = interpret_path("gs://my-bucket/data/features.npz")
+
+# Local file
+cf, filename = interpret_path("/path/to/local/file.npz")
+```
+
+## Feature I/O
+
+### save_condensed_features
+
+```python
+def save_condensed_features(
+    path: Union[str, Path],
+    features: pd.DataFrame,
+    labels: np.ndarray,
+    feature_dtype: type = np.float32,
+    label_dtype: type = np.int32,
+    check_header: bool = True,
+)
+```
+
+Saves features and labels in a condensed compressed format with header validation.
+
+<ParamField path="path" type="Union[str, Path]">
+  Output path for the compressed features file
+</ParamField>
+
+<ParamField path="features" type="pd.DataFrame">
+  Feature matrix as a DataFrame
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray">
+  Label array
+</ParamField>
+
+<ParamField path="feature_dtype" type="type" default="np.float32">
+  Data type for features
+</ParamField>
+
+<ParamField path="label_dtype" type="type" default="np.int32">
+  Data type for labels
+</ParamField>
+
+<ParamField path="check_header" type="bool" default="True">
+  Whether to validate column headers against existing header.txt file
+</ParamField>
+
+**Returns:** `None`
+
+<Note>
+The function reindexes features to include index -1 and saves both features and labels in a compressed .npz format. A header.txt file is created/validated in the same directory.
+</Note>
+
+```python Example
+import pandas as pd
+import numpy as np
+from meshmash.io import save_condensed_features
+
+features = pd.DataFrame({
+    'x': [1.0, 2.0, 3.0],
+    'y': [4.0, 5.0, 6.0],
+    'z': [7.0, 8.0, 9.0]
+})
+labels = np.array([0, 1, 0])
+
+save_condensed_features(
+    "gs://my-bucket/features/data.npz",
+    features,
+    labels,
+    feature_dtype=np.float32
+)
+```
+
+### read_condensed_features
+
+```python
+def read_condensed_features(path: Union[str, Path]) -> tuple[pd.DataFrame, np.ndarray]
+```
+
+Reads condensed features and labels from a compressed file.
+
+<ParamField path="path" type="Union[str, Path]">
+  Path to the compressed features file
+</ParamField>
+
+**Returns:** `Tuple[pd.DataFrame, np.ndarray]`
+- Features as a DataFrame with columns from header.txt
+- Labels as a numpy array
+
+```python Example
+from meshmash.io import read_condensed_features
+
+features, labels = read_condensed_features("gs://my-bucket/features/data.npz")
+print(features.shape)
+print(labels.shape)
+```
+
+## Edge I/O
+
+### save_condensed_edges
+
+```python
+def save_condensed_edges(
+    path: Union[str, Path], edges: pd.DataFrame, check_header: bool = True
+)
+```
+
+Saves edge data in a condensed compressed format.
+
+<ParamField path="path" type="Union[str, Path]">
+  Output path for the compressed edges file
+</ParamField>
+
+<ParamField path="edges" type="pd.DataFrame">
+  Edge DataFrame with 'source' and 'target' columns plus optional edge features
+</ParamField>
+
+<ParamField path="check_header" type="bool" default="True">
+  Whether to validate column headers against existing header.txt file
+</ParamField>
+
+**Returns:** `None`
+
+<Note>
+Edge list (source, target) is stored as int32, while edge features are stored as float32.
+</Note>
+
+```python Example
+import pandas as pd
+from meshmash.io import save_condensed_edges
+
+edges = pd.DataFrame({
+    'source': [0, 1, 2],
+    'target': [1, 2, 0],
+    'weight': [1.0, 2.0, 1.5],
+    'distance': [0.5, 1.0, 0.8]
+})
+
+save_condensed_edges("gs://my-bucket/edges/data.npz", edges)
+```
+
+### read_condensed_edges
+
+```python
+def read_condensed_edges(path: Union[str, Path]) -> tuple[pd.DataFrame, pd.DataFrame]
+```
+
+Reads condensed edge data from a compressed file.
+
+<ParamField path="path" type="Union[str, Path]">
+  Path to the compressed edges file
+</ParamField>
+
+**Returns:** `pd.DataFrame` - DataFrame containing source, target, and all edge features
+
+```python Example
+from meshmash.io import read_condensed_edges
+
+edges = read_condensed_edges("gs://my-bucket/edges/data.npz")
+print(edges.columns)  # ['source', 'target', 'weight', 'distance']
+```
+
+## Graph I/O
+
+### save_condensed_graph
+
+```python
+def save_condensed_graph(
+    path: Union[str, Path],
+    nodes: pd.DataFrame,
+    edges: pd.DataFrame,
+    nodes_dtype=np.float32,
+    edges_dtype=np.int32,
+    check_header: bool = True,
+)
+```
+
+Saves a complete graph with nodes and edges in compressed format.
+
+<ParamField path="path" type="Union[str, Path]">
+  Output path for the compressed graph file
+</ParamField>
+
+<ParamField path="nodes" type="pd.DataFrame">
+  Node features DataFrame
+</ParamField>
+
+<ParamField path="edges" type="pd.DataFrame">
+  Edges DataFrame
+</ParamField>
+
+<ParamField path="nodes_dtype" type="type" default="np.float32">
+  Data type for node features
+</ParamField>
+
+<ParamField path="edges_dtype" type="type" default="np.int32">
+  Data type for edges
+</ParamField>
+
+<ParamField path="check_header" type="bool" default="True">
+  Whether to validate headers
+</ParamField>
+
+**Returns:** `None`
+
+<Note>
+Creates two header files: nodes_header.txt and edges_header.txt in the same directory.
+</Note>
+
+```python Example
+import pandas as pd
+import numpy as np
+from meshmash.io import save_condensed_graph
+
+nodes = pd.DataFrame({
+    'x': [0.0, 1.0, 2.0],
+    'y': [0.0, 1.0, 0.0],
+    'feature': [1.0, 2.0, 3.0]
+})
+
+edges = pd.DataFrame({
+    'source': [0, 1],
+    'target': [1, 2]
+})
+
+save_condensed_graph(
+    "gs://my-bucket/graphs/graph.npz",
+    nodes,
+    edges
+)
+```
+
+### read_condensed_graph
+
+```python
+def read_condensed_graph(path: Union[str, Path]) -> tuple[pd.DataFrame, pd.DataFrame]
+```
+
+Reads a condensed graph from a compressed file.
+
+<ParamField path="path" type="Union[str, Path]">
+  Path to the compressed graph file
+</ParamField>
+
+**Returns:** `Tuple[pd.DataFrame, pd.DataFrame]`
+- Nodes DataFrame
+- Edges DataFrame
+
+```python Example
+from meshmash.io import read_condensed_graph
+
+nodes, edges = read_condensed_graph("gs://my-bucket/graphs/graph.npz")
+print(f"Graph has {len(nodes)} nodes and {len(edges)} edges")
+```
+
+## Mapping I/O
+
+### save_id_to_mesh_map
+
+```python
+def save_id_to_mesh_map(path: Union[str, Path], id_to_mesh_map: np.ndarray)
+```
+
+Saves an ID-to-mesh mapping array.
+
+<ParamField path="path" type="Union[str, Path]">
+  Output path for the mapping file
+</ParamField>
+
+<ParamField path="id_to_mesh_map" type="np.ndarray">
+  Array of shape (N, 2) containing ID mappings
+</ParamField>
+
+**Returns:** `None`
+
+```python Example
+import numpy as np
+from meshmash.io import save_id_to_mesh_map
+
+mapping = np.array([
+    [0, 100],
+    [1, 101],
+    [2, 102]
+])
+
+save_id_to_mesh_map("gs://my-bucket/mappings/id_map.npz", mapping)
+```
+
+### read_id_to_mesh_map
+
+```python
+def read_id_to_mesh_map(path: Union[str, Path]) -> np.ndarray
+```
+
+Reads an ID-to-mesh mapping array.
+
+<ParamField path="path" type="Union[str, Path]">
+  Path to the mapping file
+</ParamField>
+
+**Returns:** `np.ndarray` - Array of shape (N, 2) containing ID mappings
+
+```python Example
+from meshmash.io import read_id_to_mesh_map
+
+mapping = read_id_to_mesh_map("gs://my-bucket/mappings/id_map.npz")
+print(mapping.shape)  # (N, 2)
+```
+
+## Generic Array I/O
+
+### save_array
+
+```python
+def save_array(path: Union[str, Path], array: np.ndarray)
+```
+
+Saves a numpy array in compressed format.
+
+<ParamField path="path" type="Union[str, Path]">
+  Output path for the array file
+</ParamField>
+
+<ParamField path="array" type="np.ndarray">
+  Numpy array to save
+</ParamField>
+
+**Returns:** `None`
+
+```python Example
+import numpy as np
+from meshmash.io import save_array
+
+data = np.random.rand(1000, 10)
+save_array("gs://my-bucket/arrays/data.npz", data)
+```
+
+### read_array
+
+```python
+def read_array(path: Union[str, Path]) -> np.ndarray
+```
+
+Reads a numpy array from a compressed file.
+
+<ParamField path="path" type="Union[str, Path]">
+  Path to the array file
+</ParamField>
+
+**Returns:** `np.ndarray` - Loaded array
+
+```python Example
+from meshmash.io import read_array
+
+data = read_array("gs://my-bucket/arrays/data.npz")
+print(data.shape)
+```

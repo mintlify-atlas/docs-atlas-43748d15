@@ -1,0 +1,172 @@
+---
+title: Installation
+description: How to install MeshMash and its dependencies
+---
+
+# Installing MeshMash
+
+MeshMash can be installed using pip or from source. The library requires Python 3.12.
+
+## Requirements
+
+<Note>
+  MeshMash requires **Python 3.12** (Python 3.13 is not yet supported)
+</Note>
+
+## Installation Methods
+
+<Tabs>
+  <Tab title="pip (Recommended)">
+    Install MeshMash directly from PyPI:
+
+    ```bash
+    pip install meshmash
+    ```
+
+    This will automatically install all required dependencies.
+  </Tab>
+
+  <Tab title="From Source">
+    Clone the repository and install in development mode:
+
+    ```bash
+    git clone https://github.com/your-org/meshmash.git
+    cd meshmash
+    pip install -e .
+    ```
+  </Tab>
+
+  <Tab title="uv (Fast)">
+    For faster installation using [uv](https://github.com/astral-sh/uv):
+
+    ```bash
+    uv pip install meshmash
+    ```
+  </Tab>
+</Tabs>
+
+## Dependencies
+
+MeshMash automatically installs the following core dependencies:
+
+<AccordionGroup>
+  <Accordion title="Core Scientific Libraries">
+    - **numpy** (>=1.26.0): Array operations and numerical computing
+    - **scipy** (>=1.15.0): Sparse matrices and scientific algorithms
+    - **pandas** (>=2.2.3): Data structures for features and graphs
+  </Accordion>
+
+  <Accordion title="Geometry Processing">
+    - **gpytoolbox** (>=0.3.3): Computational geometry utilities
+    - **robust-laplacian** (>=1.0.0): Robust Laplacian for non-manifold meshes
+    - **pyvista** (>=0.44.1): 3D mesh visualization and processing
+    - **fast-simplification** (>=0.1.7): Mesh simplification algorithms
+  </Accordion>
+
+  <Accordion title="Utilities">
+    - **fastremap** (>=1.16.1): Fast array remapping operations
+    - **tqdm-joblib** (>=0.0.4): Progress bars for parallel processing
+  </Accordion>
+</AccordionGroup>
+
+## Optional Dependencies
+
+For additional functionality, you may want to install:
+
+<CodeGroup>
+```bash PyMeshFix
+pip install pymeshfix
+```
+
+```bash CloudFiles
+pip install cloud-files
+```
+
+```bash Scikit-learn
+pip install scikit-learn
+```
+</CodeGroup>
+
+<Card title="Why these optional packages?" icon="circle-question">
+  - **pymeshfix**: Required for `fix_mesh()` function to repair broken meshes
+  - **cloud-files**: Needed for cloud storage I/O operations (Google Cloud, AWS S3)
+  - **scikit-learn**: Used by `project_points_to_mesh()` for nearest neighbor search
+</Card>
+
+## Verify Installation
+
+Check that MeshMash is installed correctly:
+
+```python
+import meshmash
+import numpy as np
+
+# Create a simple test mesh (tetrahedron)
+vertices = np.array([
+    [0, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1]
+], dtype=np.float64)
+
+faces = np.array([
+    [0, 1, 2],
+    [0, 1, 3],
+    [0, 2, 3],
+    [1, 2, 3]
+], dtype=np.int32)
+
+mesh = (vertices, faces)
+
+# Compute Laplacian
+L, M = meshmash.cotangent_laplacian(mesh)
+print(f"Laplacian shape: {L.shape}")
+print("MeshMash is working correctly!")
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Python Version Errors">
+    MeshMash requires Python 3.12. If you see version errors:
+
+    ```bash
+    # Check your Python version
+    python --version
+
+    # Use a specific Python version
+    python3.12 -m pip install meshmash
+    ```
+  </Accordion>
+
+  <Accordion title="Dependency Conflicts">
+    If you encounter dependency conflicts, try installing in a fresh virtual environment:
+
+    ```bash
+    python3.12 -m venv meshmash-env
+    source meshmash-env/bin/activate  # On Windows: meshmash-env\Scripts\activate
+    pip install meshmash
+    ```
+  </Accordion>
+
+  <Accordion title="Import Errors">
+    If you get import errors for optional dependencies:
+
+    ```python
+    # For mesh fixing
+    pip install pymeshfix
+
+    # For cloud I/O
+    pip install cloud-files
+
+    # For point projection
+    pip install scikit-learn
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+  Ready to start processing meshes? Check out the quick start guide for practical examples.
+</Card>

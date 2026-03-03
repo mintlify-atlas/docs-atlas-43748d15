@@ -1,0 +1,284 @@
+---
+title: 'Morphometry Pipeline'
+description: 'Measure geometric properties of subcellular structures like spines and boutons'
+---
+
+The `morphometry_pipeline` module provides tools for measuring geometric properties of subcellular neural structures. It is designed to analyze components like dendritic spines, axonal boutons, and other small structures on neuron meshes.
+
+## Overview
+
+The morphometry pipeline measures detailed geometric properties for each component:
+
+- **Volume** - Estimated using winding number and Monte Carlo sampling
+- **Surface area** - Computed from mesh vertex areas
+- **Sphericity** - Shape measure comparing volume to surface area
+- **Principal components** - Orientation and elongation of structures
+- **Distance transform** - Distance from interior points to surface
+- **Spatial location** - Centroid position of each component
+
+## Functions
+
+### component_morphometry_pipeline
+
+Compute morphometric measurements for labeled components on a mesh.
+
+```python
+component_morphometry_pipeline(
+    mesh,
+    labels,
+    select_label,
+    post_synapse_mappings=None,
+    vertex_features=None,
+    split_laplacian="graph",
+    split_threshold=None,
+    split_min_size=10,
+    bound_volume_threshold=None,
+    verbose=False,
+)
+```
+
+<ParamField path="mesh" type="tuple" required>
+  The input mesh as (vertices, faces). Vertices should be in nanometers.
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray" required>
+  Array of labels for each vertex, indicating which component it belongs to. Same length as vertices.
+</ParamField>
+
+<ParamField path="select_label" type="int" required>
+  The label value to analyze. Only components with this label are measured (e.g., label for "spine" or "bouton").
+</ParamField>
+
+<ParamField path="post_synapse_mappings" type="np.ndarray" default="None">
+  Array mapping synapse IDs to mesh vertex indices. If provided, counts the number of synapses on each component.
+</ParamField>
+
+<ParamField path="vertex_features" type="pd.DataFrame" default="None">
+  Additional per-vertex features to include in analysis (currently not used in measurements).
+</ParamField>
+
+<ParamField path="split_laplacian" type="str" default="graph">
+  Type of Laplacian to use for component splitting. Currently only "graph" is supported.
+</ParamField>
+
+<ParamField path="split_threshold" type="float" default="None">
+  Threshold for Fiedler eigenvalue. Components with eigenvalue below this are split into two. If None, no splitting occurs.
+</ParamField>
+
+<ParamField path="split_min_size" type="int" default="10">
+  Minimum number of vertices required for each split component. Prevents over-splitting.
+</ParamField>
+
+<ParamField path="bound_volume_threshold" type="float" default="None">
+  Maximum bounding box volume in μm³. Components with larger bounding boxes are skipped (prevents measuring large artifacts).
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Show progress bar during computation.
+</ParamField>
+
+**Returns:** A tuple of `(results_df, corrected_components)` where:
+- `results_df`: DataFrame with one row per component and columns for all measurements
+- `corrected_components`: Array of component labels after splitting, same length as vertices
+
+**Example:**
+```python
+import numpy as np
+import pandas as pd
+from meshmash.morphometry_pipeline import component_morphometry_pipeline
+from meshmash.cave import get_synapse_mapping
+
+# Assume you have a mesh and domain labels from the HKS pipeline
+mesh = (vertices, faces)  # Your neuron mesh
+labels = np.load('domain_labels.npy')  # Labels from HKS pipeline
+
+# Mark dendritic spines as label 1 (from your classification)
+spine_label = 1
+
+# Get synapse mappings
+synapse_mappings = get_synapse_mapping(
+    root_id, mesh, client, side="post"
+)[:, 1]  # Extract vertex indices
+
+# Run morphometry analysis
+results, corrected_labels = component_morphometry_pipeline(
+    mesh,
+    labels,
+    select_label=spine_label,
+    post_synapse_mappings=synapse_mappings,
+    split_threshold=0.1,  # Split elongated components
+    bound_volume_threshold=50,  # Skip components > 50 μm³ bounding box
+    verbose=True
+)
+
+print(f"Analyzed {len(results)} spine components")
+print(results.head())
+
+# Examine measurements
+print(f"\nVolume range: {results['size_nm3'].min():.0f} - {results['size_nm3'].max():.0f} nm³")
+print(f"Mean sphericity: {results['sphericity'].mean():.3f}")
+print(f"Spines with synapses: {(results['n_post_synapses'] > 0).sum()}")
+```
+
+## Output Columns
+
+The results DataFrame contains the following columns:
+
+### Geometric Measurements
+
+<ParamField path="size_nm3" type="float32">
+  Estimated volume in nm³ using winding number method.
+</ParamField>
+
+<ParamField path="area_nm2" type="float32">
+  Surface area in nm² computed from mesh.
+</ParamField>
+
+<ParamField path="sphericity" type="float32">
+  Shape measure from 0 to 1, where 1 is a perfect sphere. Computed as π^(1/3) * (6V)^(2/3) / A.
+</ParamField>
+
+### Spatial Features
+
+<ParamField path="x" type="float32">
+  X coordinate of component centroid (medoid of interior points) in nm.
+</ParamField>
+
+<ParamField path="y" type="float32">
+  Y coordinate of component centroid in nm.
+</ParamField>
+
+<ParamField path="z" type="float32">
+  Z coordinate of component centroid in nm.
+</ParamField>
+
+### Principal Component Analysis
+
+<ParamField path="pca_val_1" type="float32">
+  First principal component singular value. Indicates elongation along primary axis.
+</ParamField>
+
+<ParamField path="pca_val_2" type="float32">
+  Second principal component singular value.
+</ParamField>
+
+<ParamField path="pca_val_3" type="float32">
+  Third principal component singular value. pca_val_1/pca_val_3 ratio indicates elongation.
+</ParamField>
+
+### Distance Transform
+
+<ParamField path="max_dt_nm" type="float32">
+  Maximum distance from any interior point to the surface in nm. Indicates thickness.
+</ParamField>
+
+<ParamField path="mean_dt_nm" type="float32">
+  Mean distance from interior points to surface in nm.
+</ParamField>
+
+### Topology
+
+<ParamField path="graph_fiedler_eval" type="float32">
+  Second smallest eigenvalue of the graph Laplacian (Fiedler value). Lower values indicate elongated or multi-part structures.
+</ParamField>
+
+<ParamField path="n_vertices" type="int32">
+  Number of vertices in the component mesh.
+</ParamField>
+
+<ParamField path="n_faces" type="int32">
+  Number of faces in the component mesh.
+</ParamField>
+
+### Connectivity
+
+<ParamField path="n_post_synapses" type="uint16">
+  Number of postsynaptic inputs on this component (only if post_synapse_mappings provided).
+</ParamField>
+
+### Diagnostics
+
+<ParamField path="n_interior_samples" type="int32">
+  Number of Monte Carlo sample points that fell inside the component.
+</ParamField>
+
+<ParamField path="n_sampled_points" type="int32">
+  Total number of Monte Carlo sample points generated.
+</ParamField>
+
+<ParamField path="bound_volume_um3" type="float32">
+  Volume of axis-aligned bounding box in μm³.
+</ParamField>
+
+<ParamField path="time" type="float32">
+  Time in seconds to process this component.
+</ParamField>
+
+## Component Splitting
+
+The pipeline can automatically split components that appear to be multiple structures merged together:
+
+1. Computes the graph Laplacian for each component
+2. Calculates the Fiedler vector (second eigenvector)
+3. If the Fiedler eigenvalue is below `split_threshold`, bisects the component
+4. Each half becomes a new component if it meets `split_min_size`
+5. Process repeats recursively until no more splits occur
+
+This is useful for separating merged spines or boutons.
+
+**Example:**
+```python
+# Split components aggressively
+results, corrected = component_morphometry_pipeline(
+    mesh,
+    labels,
+    select_label=1,
+    split_threshold=0.15,  # Lower = more splitting
+    split_min_size=15,     # Minimum 15 vertices per component
+    verbose=True
+)
+
+print(f"Split {len(np.unique(labels[labels==1]))} components into {len(results)}")
+```
+
+## Volume Estimation
+
+Volume is estimated using the winding number method:
+
+1. Compute axis-aligned bounding box around the component
+2. Generate uniform random sample points within the box
+3. Compute winding number for each point (inside if > 0.5)
+4. Estimate volume as: (fraction inside) × (bounding box volume)
+
+Number of sample points scales with bounding box volume (25,000 points per μm³, minimum 1,000).
+
+## Best Practices
+
+- **Component size**: Works best for structures between 100-10,000 vertices
+- **Bounding threshold**: Set `bound_volume_threshold` to exclude large artifacts (typically 50-100 μm³)
+- **Splitting**: Use `split_threshold=0.1-0.2` for spines, higher values for more conservative splitting
+- **Synapse mapping**: Provides `n_post_synapses` count when analyzing postsynaptic structures
+- **Missing values**: Components that fail measurements are excluded from results
+
+## Performance
+
+Processing time per component depends on:
+- Bounding box volume (determines sample points)
+- Number of vertices in component
+- Whether splitting occurs
+
+Typical rates:
+- Small spines (< 1 μm³): 0.01-0.1 seconds
+- Medium boutons (1-10 μm³): 0.1-0.5 seconds
+- Large components (> 10 μm³): 0.5-2 seconds
+
+Use `verbose=True` to monitor progress with a progress bar.
+
+## Notes
+
+- All spatial measurements are in nanometers (nm)
+- Volume/area measurements assume vertex coordinates are in nm
+- Components with fewer than 10 vertices are automatically skipped
+- The algorithm filters autapses when counting synapses
+- Rows with any NaN values are dropped from results
+- Component IDs are preserved in the DataFrame index as `component_id`

@@ -1,0 +1,225 @@
+---
+title: Agglomerate
+description: Hierarchical clustering functions for mesh agglomeration and feature aggregation
+---
+
+The agglomerate module provides functions for performing hierarchical clustering on mesh data using Ward's method, and for aggregating features across cluster labels.
+
+## Functions
+
+### multicut_ward
+
+Computes labels from Ward hierarchical clustering at multiple distance thresholds without recomputing the tree at each threshold.
+
+```python
+multicut_ward(X, connectivity=None, distance_thresholds=None)
+```
+
+<ParamField path="X" type="array-like">
+  Feature matrix of shape (n_samples, n_features)
+</ParamField>
+
+<ParamField path="connectivity" type="sparse matrix, optional">
+  Connectivity matrix defining the structure of the data. Neighbors along this structure are merged during clustering.
+</ParamField>
+
+<ParamField path="distance_thresholds" type="list of float">
+  List of distance thresholds at which to cut the dendrogram
+</ParamField>
+
+**Returns:** `np.ndarray` - Array of shape (n_samples, n_thresholds) containing cluster labels for each threshold
+
+---
+
+### agglomerate_mesh
+
+Performs hierarchical clustering on mesh vertices using their features, handling NaN values appropriately.
+
+```python
+agglomerate_mesh(mesh, features, distance_thresholds=None) -> np.ndarray
+```
+
+<ParamField path="mesh" type="tuple">
+  Mesh tuple of (vertices, faces)
+</ParamField>
+
+<ParamField path="features" type="np.ndarray">
+  Feature array of shape (n_vertices, n_features)
+</ParamField>
+
+<ParamField path="distance_thresholds" type="list, int, float, or None">
+  Distance threshold(s) for cutting the dendrogram. If None, returns identity labels.
+</ParamField>
+
+**Returns:** `np.ndarray` - Cluster labels array of shape (n_vertices, n_thresholds), or None if all features are NaN
+
+**Example:**
+```python
+import numpy as np
+from meshmash import agglomerate_mesh
+
+# Assume mesh is (vertices, faces)
+vertices = np.random.rand(100, 3)
+faces = np.random.randint(0, 100, (50, 3))
+mesh = (vertices, faces)
+
+# Features for each vertex
+features = np.random.rand(100, 10)
+
+# Cluster at multiple thresholds
+labels = agglomerate_mesh(mesh, features, distance_thresholds=[0.5, 1.0, 2.0])
+print(labels.shape)  # (100, 3)
+```
+
+---
+
+### agglomerate_split_mesh
+
+Agglomerates features on a split mesh using a MeshStitcher.
+
+```python
+agglomerate_split_mesh(
+    splitter: MeshStitcher,
+    features: np.ndarray,
+    distance_thresholds: Union[list, int, float]
+)
+```
+
+<ParamField path="splitter" type="MeshStitcher">
+  MeshStitcher object that handles mesh splitting and stitching
+</ParamField>
+
+<ParamField path="features" type="np.ndarray">
+  Feature array for the mesh vertices
+</ParamField>
+
+<ParamField path="distance_thresholds" type="list, int, or float">
+  Distance threshold(s) for clustering
+</ParamField>
+
+**Returns:** `np.ndarray` - Cluster labels, either 1D (single threshold) or 2D (multiple thresholds)
+
+---
+
+### aggregate_features
+
+Aggregates features according to cluster labels using various aggregation functions.
+
+```python
+aggregate_features(features, labels, weights=None, func="mean") -> pd.DataFrame
+```
+
+<ParamField path="features" type="np.ndarray or pd.DataFrame">
+  Feature matrix to aggregate
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray or None">
+  Cluster labels for each row. If None, returns features unchanged.
+</ParamField>
+
+<ParamField path="weights" type="np.ndarray, optional">
+  Weights for weighted averaging (only used when func="mean")
+</ParamField>
+
+<ParamField path="func" type="str" default="mean">
+  Aggregation function to apply (e.g., "mean", "sum", "max")
+</ParamField>
+
+**Returns:** `pd.DataFrame` - Aggregated features indexed by cluster label
+
+**Example:**
+```python
+import numpy as np
+from meshmash import aggregate_features
+
+features = np.random.rand(100, 5)
+labels = np.random.randint(0, 10, 100)
+
+# Mean aggregation
+agg_features = aggregate_features(features, labels, func="mean")
+
+# Weighted mean aggregation
+weights = np.random.rand(100)
+weighted_agg = aggregate_features(features, labels, weights=weights, func="mean")
+```
+
+---
+
+### blow_up_features
+
+Expands aggregated features back to per-vertex features using cluster labels.
+
+```python
+blow_up_features(agg_features_df: pd.DataFrame, labels: np.ndarray) -> pd.DataFrame
+```
+
+<ParamField path="agg_features_df" type="pd.DataFrame">
+  Aggregated features indexed by cluster label
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray">
+  Cluster labels indicating which aggregated feature each vertex should receive
+</ParamField>
+
+**Returns:** `pd.DataFrame` - Expanded features with one row per vertex
+
+**Example:**
+```python
+import pandas as pd
+import numpy as np
+from meshmash import blow_up_features
+
+# Aggregated features for 5 clusters
+agg_features = pd.DataFrame(np.random.rand(5, 10), index=[0, 1, 2, 3, 4])
+
+# Labels for 100 vertices
+labels = np.random.randint(0, 5, 100)
+
+# Expand back to per-vertex features
+vertex_features = blow_up_features(agg_features, labels)
+print(vertex_features.shape)  # (100, 10)
+```
+
+---
+
+### fix_split_labels
+
+Fixes cluster labels across split meshes by creating unique labels for each submesh-label combination.
+
+```python
+fix_split_labels(agg_labels, submesh_mapping)
+```
+
+<ParamField path="agg_labels" type="np.ndarray">
+  Array of cluster labels, potentially with multiple columns for different thresholds
+</ParamField>
+
+<ParamField path="submesh_mapping" type="np.ndarray">
+  Array mapping each vertex to its submesh index
+</ParamField>
+
+**Returns:** `np.ndarray` - Fixed cluster labels with globally unique values
+
+---
+
+### fix_split_labels_and_features
+
+Fixes both labels and features for split meshes, ensuring consistency between them.
+
+```python
+fix_split_labels_and_features(agg_labels, submesh_mapping, features_by_submesh)
+```
+
+<ParamField path="agg_labels" type="np.ndarray">
+  1D array of cluster labels
+</ParamField>
+
+<ParamField path="submesh_mapping" type="np.ndarray">
+  Array mapping vertices to submesh indices
+</ParamField>
+
+<ParamField path="features_by_submesh" type="list of pd.DataFrame">
+  List of feature DataFrames, one per submesh
+</ParamField>
+
+**Returns:** `tuple` - (fixed_labels, concatenated_features_df)

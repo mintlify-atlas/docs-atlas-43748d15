@@ -1,0 +1,183 @@
+---
+title: Mesh Splitting
+description: Split large meshes into smaller submeshes for parallel processing using spectral bisection
+---
+
+## Overview
+
+Mesh splitting is a fundamental operation for processing large meshes that exceed memory or computational limits. MeshMash uses spectral bisection based on the graph Laplacian to recursively divide meshes into balanced submeshes while preserving connectivity.
+
+The `MeshStitcher` class provides a powerful workflow for splitting meshes with optional overlaps, applying operations in parallel, and stitching results back together.
+
+## Basic Splitting
+
+<Steps>
+  <Step title="Load your mesh">
+    Start with a mesh represented as a tuple of vertices and faces:
+
+    ```python
+    import numpy as np
+    from meshmash import MeshStitcher
+
+    # Mesh as (vertices, faces) tuple
+    # vertices: (n_vertices, 3) array
+    # faces: (n_faces, 3) array of vertex indices
+    mesh = (vertices, faces)
+    ```
+  </Step>
+
+  <Step title="Create a MeshStitcher">
+    Initialize the stitcher with your mesh:
+
+    ```python
+    stitcher = MeshStitcher(
+        mesh,
+        verbose=True,  # Show progress
+        n_jobs=-1      # Use all CPU cores
+    )
+    ```
+  </Step>
+
+  <Step title="Split the mesh">
+    Divide the mesh into submeshes below a vertex threshold:
+
+    ```python
+    submeshes = stitcher.split_mesh(
+        max_vertex_threshold=20_000,    # Max vertices per submesh
+        min_vertex_threshold=100,       # Min vertices to split
+        overlap_distance=20_000,        # Distance for overlap region
+        max_rounds=100000,              # Max bisection iterations
+        verify_connected=True           # Ensure each submesh is connected
+    )
+    ```
+
+    **Returns:** `list[Mesh]` - List of submesh tuples (vertices, faces)
+  </Step>
+</Steps>
+
+<Note>
+  The splitting algorithm uses the second eigenvector of the graph Laplacian (Fiedler vector) to partition vertices into two groups. This process repeats recursively until all submeshes are below the threshold.
+</Note>
+
+## Overlapping Splits
+
+For operations that require local context (like smoothing or diffusion), create overlapping submeshes:
+
+```python
+submeshes = stitcher.split_mesh(
+    max_vertex_threshold=20_000,
+    overlap_distance=5000,  # Vertices within 5000 units of borders
+    max_overlap_neighbors=1000  # Limit overlap to top 1000 nearest neighbors
+)
+```
+
+The `overlap_distance` parameter extends each submesh to include neighboring vertices within the specified geodesic distance from the border. This ensures operations don't create artifacts at submesh boundaries.
+
+## Applying Functions to Submeshes
+
+Once split, apply any function to all submeshes in parallel:
+
+```python
+def compute_features(mesh):
+    """Your custom function that processes a mesh."""
+    from meshmash import compute_hks
+    return compute_hks(mesh, max_eigenvalue=1e-8)
+
+# Apply to all submeshes and stitch results
+features = stitcher.apply(
+    compute_features,
+    fill_value=np.nan,  # Value for unprocessed vertices
+    stitch=True         # Automatically stitch results
+)
+
+# features is now (n_vertices, n_features) for the full mesh
+```
+
+**Signature:** `stitcher.apply(func, *args, fill_value=np.nan, stitch=True, **kwargs) -> np.ndarray`
+
+## Working with Features on Submeshes
+
+If you have features defined on the original mesh and want to apply a function that uses both the submesh geometry and features:
+
+```python
+# Features for the full mesh: (n_vertices, n_features)
+X = np.random.randn(len(vertices), 128)
+
+def process_with_features(mesh, features):
+    """Function that takes mesh and corresponding features."""
+    # Process using both geometry and features
+    return processed_features
+
+results = stitcher.apply_on_features(
+    process_with_features,
+    X,  # Original features
+    fill_value=np.nan
+)
+```
+
+**Signature:** `stitcher.apply_on_features(func, X, *args, fill_value=np.nan, **kwargs) -> np.ndarray`
+
+<Note>
+  The stitcher automatically maps features from the full mesh to each submesh, handles overlaps, and stitches results back to the original vertex ordering.
+</Note>
+
+## Understanding the Mapping
+
+The stitcher maintains important mappings:
+
+- `stitcher.submesh_mapping`: Array of shape `(n_vertices,)` mapping each vertex to its submesh ID (or -1 if excluded)
+- `stitcher.submesh_overlap_indices`: List where `submesh_overlap_indices[i]` contains vertex indices from the original mesh included in submesh `i`
+- `stitcher.submeshes`: List of submesh tuples with overlaps
+
+```python
+# Find which submesh contains vertex 1000
+submesh_id = stitcher.submesh_mapping[1000]
+
+# Get all vertices in submesh 0 (including overlap)
+overlap_indices = stitcher.submesh_overlap_indices[0]
+```
+
+## Advanced: Cotangent Laplacian Splitting
+
+For more geometrically-aware splitting, use the cotangent Laplacian instead of the graph Laplacian:
+
+```python
+from meshmash.split import fit_mesh_split_lap
+
+submesh_mapping = fit_mesh_split_lap(
+    mesh,
+    max_vertex_threshold=20_000,
+    robust=True,           # Use robust Laplacian
+    mollify_factor=1e-5    # Numerical stability
+)
+
+# Returns: (n_vertices,) array of submesh labels
+```
+
+**Parameters:**
+- `mesh`: `Union[Mesh, np.ndarray, csr_array]` - Input mesh or adjacency matrix
+- `max_vertex_threshold`: `int` - Maximum vertices per submesh
+- `min_vertex_threshold`: `int` - Minimum vertices to consider splitting
+- `robust`: `bool` - Use robust cotangent Laplacian (recommended for non-manifold meshes)
+- `mollify_factor`: `float` - Numerical mollification factor
+
+**Returns:** `np.ndarray` - Shape `(n_vertices,)` with submesh labels
+
+<Warning>
+  The cotangent Laplacian splitting (`fit_mesh_split_lap`) is slower than graph-based splitting but better preserves geometric structure. Use it when geometry is critical to your analysis.
+</Warning>
+
+## Performance Considerations
+
+- **Vertex threshold**: Smaller submeshes mean more parallelism but more overhead. 10,000-50,000 vertices per submesh is typically optimal.
+- **Overlap distance**: Larger overlaps ensure better local context but increase memory usage and computation.
+- **Parallel jobs**: Set `n_jobs=-1` to use all cores, or specify a number to limit parallelism.
+
+```python
+# Good for very large meshes (1M+ vertices)
+stitcher = MeshStitcher(mesh, n_jobs=-1, verbose=2)
+submeshes = stitcher.split_mesh(
+    max_vertex_threshold=30_000,
+    overlap_distance=10_000
+)
+```

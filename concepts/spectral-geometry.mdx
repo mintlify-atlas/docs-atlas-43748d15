@@ -1,0 +1,436 @@
+---
+title: 'Spectral Geometry Filtering'
+description: 'Using spectral filters to extract geometric features from meshes'
+---
+
+## Overview
+
+Spectral geometry filtering applies functions in the frequency domain to extract shape descriptors from meshes. MeshMash provides efficient implementations of several spectral filters, including Heat Kernel Signatures (HKS) and B-spline basis filters.
+
+## Spectral Filtering Concept
+
+The core idea is to:
+1. Decompose the mesh Laplacian into eigenvalues λᵢ and eigenvectors φᵢ
+2. Apply a filter function h(λᵢ) to weight different frequencies
+3. Combine filtered eigenvectors to create features at each vertex
+
+Mathematically, for each vertex v:
+```
+f(v) = Σᵢ h(λᵢ) φᵢ(v)²
+```
+
+## Heat Kernel Signature (HKS)
+
+HKS is a multi-scale shape descriptor based on heat diffusion on the mesh surface.
+
+### Computing HKS
+
+```python
+from meshmash import compute_hks
+
+# Compute HKS features
+hks_features = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    t_min=1.0,
+    t_max=1000.0,
+    n_components=32,
+    robust=True,
+    verbose=True
+)
+
+# Returns (n_vertices, 32) array of features
+```
+
+### HKS Filter Function
+
+The HKS filter uses exponential kernels at different time scales:
+
+```python
+from meshmash import get_hks_filter
+import numpy as np
+
+# Create HKS filter
+hks_filter = get_hks_filter(
+    t_min=1.0,
+    t_max=1000.0,
+    n_scales=32
+)
+
+# Filter computes: exp(-t * λ) for each scale t
+eigenvalues = np.array([0.001, 0.01, 0.1, 1.0])
+coefficients = hks_filter(eigenvalues)
+# Shape: (32, 4) - 32 scales × 4 eigenvalues
+```
+
+<Info>
+**Time Scales**: The range `[t_min, t_max]` controls which geometric features are captured:
+- Small t: Local, fine-grained features
+- Large t: Global, coarse shape information
+</Info>
+
+### Visualizing HKS Features
+
+```python
+import pyvista as pv
+from meshmash import mesh_to_poly, compute_hks
+
+# Compute HKS
+hks = compute_hks(mesh, max_eigenvalue=1e-8, n_components=16)
+
+# Visualize different scales
+poly = mesh_to_poly(mesh)
+for scale_idx in [0, 5, 10, 15]:
+    poly_copy = poly.copy()
+    poly_copy['hks'] = hks[:, scale_idx]
+    poly_copy.plot(
+        scalars='hks',
+        cmap='viridis',
+        title=f'HKS Scale {scale_idx}'
+    )
+```
+
+### HKS Parameters
+
+- **max_eigenvalue**: Maximum frequency in decomposition (typically `1e-8` to `1e-9`)
+- **t_min, t_max**: Time scale range (use `None` for automatic selection)
+- **n_components**: Number of time scales (typically 16-64)
+- **band_size**: Eigenvalues computed per band (typically 50)
+- **robust**: Use robust Laplacian for numerical stability
+- **decomposition_dtype**: `np.float32` or `np.float64` for speed vs. precision
+
+## B-spline Geometry Vectors
+
+B-spline filters provide a smooth, localized basis over the frequency spectrum.
+
+### Computing Geometry Vectors
+
+```python
+from meshmash import compute_geometry_vectors
+
+geom_features = compute_geometry_vectors(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32,
+    robust=True,
+    verbose=True
+)
+
+# Returns (n_vertices, 32) array
+```
+
+### B-spline Filter Function
+
+B-spline filters use cubic B-spline basis functions:
+
+```python
+from meshmash import construct_bspline_filter
+import numpy as np
+
+# Create filter over eigenvalue range [0, 1e-8]
+filter_func = construct_bspline_filter(
+    e_min=0.0,
+    e_max=1e-8,
+    n_components=32
+)
+
+# Apply to eigenvalues
+eigenvalues = np.linspace(0, 1e-8, 100)
+coefficients = filter_func(eigenvalues)
+# Shape: (32, 100) - 32 basis functions × 100 eigenvalues
+```
+
+<Note>
+B-spline filters provide overlapping, smooth coverage of the frequency spectrum, unlike discrete binning approaches.
+</Note>
+
+### B-spline Basis Construction
+
+The underlying basis functions:
+
+```python
+from meshmash import construct_bspline_basis
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Construct basis functions
+bases = construct_bspline_basis(
+    e_min=0.0,
+    e_max=1.0,
+    n_components=10
+)
+
+# Visualize
+x = np.linspace(0, 1, 1000)
+plt.figure(figsize=(10, 6))
+for i, basis in enumerate(bases):
+    plt.plot(x, basis(x), label=f'Basis {i}')
+plt.xlabel('Eigenvalue')
+plt.ylabel('Filter Response')
+plt.title('B-spline Basis Functions')
+plt.legend()
+plt.grid(True, alpha=0.3)
+```
+
+## General Spectral Geometry Filter
+
+For custom filters, use the general `spectral_geometry_filter` function:
+
+```python
+from meshmash import spectral_geometry_filter
+import numpy as np
+
+# Define custom filter
+def my_filter(eigenvalues):
+    """Custom filter that emphasizes mid-range frequencies."""
+    # Example: Gaussian bumps at different frequencies
+    n_filters = 16
+    centers = np.linspace(eigenvalues.min(), eigenvalues.max(), n_filters)
+    width = (eigenvalues.max() - eigenvalues.min()) / n_filters
+    
+    coeffs = np.exp(-((eigenvalues[None, :] - centers[:, None]) / width) ** 2)
+    return coeffs  # Shape: (n_filters, n_eigenvalues)
+
+# Apply filter
+features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    max_eigenvalue=1e-8,
+    band_size=50,
+    robust=True,
+    verbose=True
+)
+```
+
+<CodeGroup>
+```python HKS Filter
+from meshmash import compute_hks
+
+# Heat Kernel Signature - multi-scale heat diffusion
+hks = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32,
+    t_min=1.0,
+    t_max=1000.0
+)
+```
+
+```python B-spline Filter
+from meshmash import compute_geometry_vectors
+
+# B-spline basis over frequency spectrum
+geom = compute_geometry_vectors(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32
+)
+```
+
+```python Custom Filter
+from meshmash import spectral_geometry_filter
+import numpy as np
+
+def lowpass_filter(eigenvalues):
+    """Keep only low frequencies."""
+    cutoff = 1e-9
+    response = (eigenvalues < cutoff).astype(float)
+    return response[None, :]  # Shape: (1, n_eigenvalues)
+
+features = spectral_geometry_filter(
+    mesh,
+    filter=lowpass_filter,
+    max_eigenvalue=1e-8
+)
+```
+</CodeGroup>
+
+### Filter Requirements
+
+Custom filter functions must:
+- Accept a 1D array of eigenvalues
+- Return a 2D array of shape `(n_filters, n_eigenvalues)`
+- Handle edge cases (infinite/NaN values set to 0)
+
+## Raw Eigendecomposition
+
+Get eigenvalues and eigenvectors without filtering:
+
+```python
+from meshmash import spectral_geometry_filter
+
+# Pass filter=None to get raw decomposition
+eigenvalues, eigenvectors = spectral_geometry_filter(
+    mesh,
+    filter=None,  # No filtering
+    max_eigenvalue=1e-8,
+    drop_first=True,  # Drop constant eigenvector
+    robust=True
+)
+
+# eigenvalues: (n,) array of frequencies
+# eigenvectors: (n_vertices, n) array of eigenfunctions
+```
+
+## Performance Considerations
+
+### Data Type Selection
+
+Balance precision and speed:
+
+```python
+# Faster but less precise
+features_f32 = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32,
+    decomposition_dtype=np.float32
+)
+
+# Slower but more precise
+features_f64 = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32,
+    decomposition_dtype=np.float64
+)
+```
+
+<Info>
+For most applications, `float32` provides sufficient precision with 2-3x speedup on large meshes.
+</Info>
+
+### Band Size Tuning
+
+Adjust band size for optimal performance:
+
+```python
+# Smaller bands: more overhead, better convergence
+features = compute_hks(mesh, max_eigenvalue=1e-8, band_size=25)
+
+# Larger bands: less overhead, may be slower per band  
+features = compute_hks(mesh, max_eigenvalue=1e-8, band_size=100)
+```
+
+Typically, `band_size=50` is a good default.
+
+### Truncation
+
+Control whether to truncate exactly at `max_eigenvalue`:
+
+```python
+features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    max_eigenvalue=1e-8,
+    truncate_extra=True  # Exact truncation
+)
+
+features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    max_eigenvalue=1e-8,
+    truncate_extra=False  # May overshoot by one band
+)
+```
+
+## Common Applications
+
+### Feature Extraction for ML
+
+```python
+from meshmash import compute_hks, compute_geometry_vectors
+import numpy as np
+
+# Combine multiple spectral features
+hks = compute_hks(mesh, max_eigenvalue=1e-8, n_components=32)
+geom = compute_geometry_vectors(mesh, max_eigenvalue=1e-8, n_components=32)
+
+# Concatenate features
+features = np.concatenate([hks, geom], axis=1)
+# Shape: (n_vertices, 64)
+
+# Use in machine learning pipeline
+from sklearn.ensemble import RandomForestClassifier
+clf = RandomForestClassifier()
+clf.fit(features, labels)
+```
+
+### Mesh Correspondence
+
+```python
+# Compute HKS for two meshes
+hks1 = compute_hks(mesh1, max_eigenvalue=1e-8, n_components=32)
+hks2 = compute_hks(mesh2, max_eigenvalue=1e-8, n_components=32)
+
+# Find correspondences using nearest neighbors
+from sklearn.neighbors import NearestNeighbors
+nn = NearestNeighbors(n_neighbors=1)
+nn.fit(hks2)
+
+distances, indices = nn.kneighbors(hks1)
+# indices[i] gives the closest vertex in mesh2 for vertex i in mesh1
+```
+
+### Shape Segmentation
+
+```python
+from meshmash import compute_geometry_vectors
+from sklearn.cluster import KMeans
+
+# Extract geometric features
+features = compute_geometry_vectors(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=64
+)
+
+# Cluster vertices
+kmeans = KMeans(n_clusters=5, random_state=0)
+labels = kmeans.fit_predict(features)
+
+# Visualize segmentation
+poly = mesh_to_poly(mesh)
+poly['segment'] = labels
+poly.plot(scalars='segment', cmap='tab10')
+```
+
+## Numerical Stability
+
+<Warning>
+**Mesh Quality**: Numerical errors often arise from malformed meshes. Always use `robust=True` for production code, or ensure your mesh is manifold and well-conditioned.
+</Warning>
+
+### Using Robust Laplacian
+
+```python
+# Recommended for most applications
+features = compute_hks(
+    mesh,
+    max_eigenvalue=1e-8,
+    robust=True,  # Handle non-manifold meshes
+    mollify_factor=1e-5  # Numerical stabilization
+)
+```
+
+### Handling Convergence Issues
+
+If eigendecomposition fails to converge:
+
+```python
+features = spectral_geometry_filter(
+    mesh,
+    filter=my_filter,
+    max_eigenvalue=1e-8,
+    band_size=25,  # Try smaller bands
+    robust=True,
+    decomposition_dtype=np.float64,  # Use higher precision
+    verbose=2  # Show detailed progress
+)
+```
+
+## References
+
+- **Heat Kernel Signature**: Sun et al., "A Concise and Provably Informative Multi-Scale Signature Based on Heat Diffusion", 2009
+- **Spectral Geometry Processing**: Vallet and Levy, "Spectral Geometry Processing with Manifold Harmonics", 2008
+- **Robust Laplacian**: Sharp and Crane, "A Laplacian for Nonmanifold Triangle Meshes", 2020

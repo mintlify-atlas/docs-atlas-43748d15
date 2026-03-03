@@ -1,0 +1,351 @@
+---
+title: "split"
+description: "Mesh splitting and stitching utilities for processing large meshes"
+---
+
+## Overview
+
+The `split` module provides functions and classes for splitting large meshes into smaller submeshes for parallel processing, and stitching the results back together. This is particularly useful when working with meshes that exceed memory limits or when you want to parallelize operations across mesh regions.
+
+## Functions
+
+### fit_mesh_split
+
+Splits a mesh into submeshes based on spectral graph partitioning.
+
+<ParamField path="mesh" type="Union[Mesh, np.ndarray, csr_array]" required>
+  The mesh to split. Can be a Mesh object, adjacency matrix (numpy array), or sparse adjacency matrix (csr_array).
+</ParamField>
+
+<ParamField path="max_vertex_threshold" type="int" default="20000">
+  Maximum number of vertices allowed in each submesh.
+</ParamField>
+
+<ParamField path="min_vertex_threshold" type="int" default="100">
+  Minimum number of vertices required for a submesh to be considered.
+</ParamField>
+
+<ParamField path="max_rounds" type="int" default="100000">
+  Maximum number of splitting rounds to perform.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Whether to print progress information during splitting.
+</ParamField>
+
+**Returns:** `np.ndarray` - An array mapping each vertex to its submesh ID. Vertices not assigned to any submesh have value -1.
+
+```python
+import meshmash as mm
+
+# Load a large mesh
+mesh = mm.load_mesh("large_brain.ply")
+
+# Split into submeshes with max 10000 vertices each
+submesh_mapping = mm.fit_mesh_split(
+    mesh,
+    max_vertex_threshold=10000,
+    min_vertex_threshold=100,
+    verbose=True
+)
+
+# Check how many submeshes were created
+n_submeshes = submesh_mapping.max() + 1
+print(f"Created {n_submeshes} submeshes")
+```
+
+---
+
+### apply_mesh_split
+
+Applies a submesh mapping to create separate mesh objects.
+
+<ParamField path="mesh" type="Mesh" required>
+  The original mesh to split.
+</ParamField>
+
+<ParamField path="split_mapping" type="np.ndarray" required>
+  The vertex-to-submesh mapping returned by `fit_mesh_split`.
+</ParamField>
+
+**Returns:** `list[Mesh]` - A list of submesh tuples, each containing (vertices, faces).
+
+```python
+import meshmash as mm
+
+# Split the mesh
+submesh_mapping = mm.fit_mesh_split(mesh, max_vertex_threshold=10000)
+
+# Create separate mesh objects
+submeshes = mm.apply_mesh_split(mesh, submesh_mapping)
+
+# Process each submesh
+for i, submesh in enumerate(submeshes):
+    vertices, faces = submesh
+    print(f"Submesh {i}: {len(vertices)} vertices, {len(faces)} faces")
+```
+
+---
+
+### fit_overlapping_mesh_split
+
+Splits a mesh into overlapping submeshes, which is useful for processing that requires local context.
+
+<ParamField path="mesh" type="Mesh" required>
+  The mesh to split.
+</ParamField>
+
+<ParamField path="overlap_distance" type="float" default="20000">
+  Distance (in mesh units) to extend each submesh beyond its boundary for overlap.
+</ParamField>
+
+<ParamField path="vertex_threshold" type="int" default="20000">
+  Maximum number of vertices in each core submesh (before adding overlap).
+</ParamField>
+
+<ParamField path="max_rounds" type="int" default="1000">
+  Maximum number of splitting rounds.
+</ParamField>
+
+**Returns:** `list[np.ndarray]` - A list of vertex index arrays, one for each overlapping submesh.
+
+```python
+import meshmash as mm
+
+# Create overlapping submeshes with 5000 unit overlap
+indices_by_submesh = mm.fit_overlapping_mesh_split(
+    mesh,
+    overlap_distance=5000,
+    vertex_threshold=10000
+)
+
+# Each submesh includes vertices from neighboring regions
+for i, indices in enumerate(indices_by_submesh):
+    submesh = mm.subset_mesh_by_indices(mesh, indices)
+    print(f"Overlapping submesh {i}: {len(indices)} vertices")
+```
+
+---
+
+## Classes
+
+### MeshStitcher
+
+A class for splitting meshes, applying functions to submeshes in parallel, and stitching results back together.
+
+```python
+stitcher = MeshStitcher(mesh, verbose=True, n_jobs=-1)
+```
+
+<ParamField path="mesh" type="Mesh" required>
+  The mesh to process.
+</ParamField>
+
+<ParamField path="verbose" type="Union[bool, int]" default="False">
+  Verbosity level. 0 or False for silent, 1 for basic progress, 2+ for detailed timing.
+</ParamField>
+
+<ParamField path="n_jobs" type="int" default="-1">
+  Number of parallel jobs. -1 uses all available cores, 1 disables parallelization.
+</ParamField>
+
+#### Methods
+
+##### split_mesh
+
+Splits the mesh into overlapping submeshes.
+
+<ParamField path="max_vertex_threshold" type="int" default="20000">
+  Maximum vertices per submesh.
+</ParamField>
+
+<ParamField path="min_vertex_threshold" type="int" default="100">
+  Minimum vertices for a submesh to be considered.
+</ParamField>
+
+<ParamField path="overlap_distance" type="float" default="20000">
+  Distance to extend submesh boundaries for overlap.
+</ParamField>
+
+<ParamField path="max_rounds" type="int" default="100000">
+  Maximum splitting iterations.
+</ParamField>
+
+<ParamField path="max_overlap_neighbors" type="Optional[int]" default="None">
+  Limit the number of overlap neighbors to include. None means no limit.
+</ParamField>
+
+<ParamField path="verify_connected" type="bool" default="True">
+  Whether to verify each submesh is fully connected.
+</ParamField>
+
+**Returns:** `list[Mesh]` - List of overlapping submeshes.
+
+---
+
+##### apply
+
+Applies a function to each submesh in parallel and optionally stitches results.
+
+<ParamField path="func" type="callable" required>
+  Function to apply. Should take a mesh as first argument and return a feature array with one row per vertex.
+</ParamField>
+
+<ParamField path="*args" type="any">
+  Additional positional arguments to pass to the function.
+</ParamField>
+
+<ParamField path="fill_value" type="any" default="np.nan">
+  Value to use for vertices not assigned to any submesh.
+</ParamField>
+
+<ParamField path="stitch" type="bool" default="True">
+  Whether to stitch results back into a single array. If False, returns list of per-submesh results.
+</ParamField>
+
+<ParamField path="**kwargs" type="any">
+  Additional keyword arguments to pass to the function.
+</ParamField>
+
+**Returns:** `np.ndarray` or `list` - Stitched feature array (if stitch=True) or list of per-submesh results.
+
+---
+
+##### subset_apply
+
+Applies a function only to submeshes containing specified vertices.
+
+<ParamField path="func" type="callable" required>
+  Function to apply to relevant submeshes.
+</ParamField>
+
+<ParamField path="indices" type="np.ndarray" required>
+  Vertex indices that determine which submeshes to process.
+</ParamField>
+
+<ParamField path="*args" type="any">
+  Additional positional arguments to pass to the function.
+</ParamField>
+
+<ParamField path="reindex" type="bool" default="False">
+  If True, return only features for the specified indices. If False, return features for all vertices.
+</ParamField>
+
+<ParamField path="fill_value" type="any" default="np.nan">
+  Value for unprocessed vertices.
+</ParamField>
+
+<ParamField path="**kwargs" type="any">
+  Additional keyword arguments to pass to the function.
+</ParamField>
+
+**Returns:** `np.ndarray` - Feature array for all vertices (or just specified indices if reindex=True).
+
+---
+
+##### apply_on_features
+
+Applies a function to each submesh along with corresponding feature data.
+
+<ParamField path="func" type="callable" required>
+  Function to apply. Should take (mesh, features) as first two arguments.
+</ParamField>
+
+<ParamField path="X" type="np.ndarray" required>
+  Feature array with one row per vertex in the original mesh.
+</ParamField>
+
+<ParamField path="*args" type="any">
+  Additional positional arguments to pass to the function.
+</ParamField>
+
+<ParamField path="fill_value" type="any" default="np.nan">
+  Value for unprocessed vertices.
+</ParamField>
+
+<ParamField path="**kwargs" type="any">
+  Additional keyword arguments to pass to the function.
+</ParamField>
+
+**Returns:** `np.ndarray` - Stitched feature array.
+
+---
+
+##### stitch_features
+
+Stitches per-submesh feature arrays back into a single array for the full mesh.
+
+<ParamField path="features_by_submesh" type="list[np.ndarray]" required>
+  List of feature arrays, one per submesh. Can contain None for submeshes that weren't processed.
+</ParamField>
+
+<ParamField path="fill_value" type="any" default="np.nan">
+  Value to use for vertices not in any submesh.
+</ParamField>
+
+**Returns:** `np.ndarray` - Feature array with one row per vertex in the original mesh.
+
+---
+
+## Usage Example
+
+Here's a complete example showing how to use MeshStitcher to process a large mesh in parallel:
+
+```python
+import meshmash as mm
+import numpy as np
+
+# Load a large mesh
+mesh = mm.load_mesh("large_cortex.ply")
+
+# Create a stitcher
+stitcher = mm.MeshStitcher(mesh, verbose=True, n_jobs=-1)
+
+# Split the mesh into manageable pieces
+submeshes = stitcher.split_mesh(
+    max_vertex_threshold=15000,
+    overlap_distance=5000
+)
+
+print(f"Split into {len(submeshes)} submeshes")
+
+# Define a function to compute features
+def compute_curvature(mesh):
+    # Your curvature computation here
+    vertices, faces = mesh
+    curvatures = mm.compute_gaussian_curvature(mesh)
+    return curvatures.reshape(-1, 1)
+
+# Apply the function to all submeshes in parallel
+curvatures = stitcher.apply(compute_curvature)
+
+# Apply a function with additional arguments
+def smooth_features(mesh, features, iterations=5):
+    # Smooth features along the mesh
+    smoothed = mm.smooth_on_mesh(mesh, features, iterations=iterations)
+    return smoothed
+
+# Compute features on a subset of vertices
+vertex_indices = np.array([100, 200, 300, 400])
+subset_features = stitcher.subset_apply(
+    compute_curvature,
+    vertex_indices,
+    reindex=True
+)
+
+# Apply a function that needs existing features
+initial_features = np.random.randn(len(mesh[0]), 3)
+smoothed = stitcher.apply_on_features(
+    smooth_features,
+    initial_features,
+    iterations=10
+)
+```
+
+## Notes
+
+- The splitting algorithm uses spectral graph partitioning based on the mesh Laplacian
+- Overlapping submeshes ensure smooth transitions when stitching results
+- The `MeshStitcher` class handles the complexity of managing submesh boundaries and overlaps
+- All parallel operations use joblib for efficient CPU utilization
+- When stitching, only the non-overlapping portions of each submesh are used to avoid duplication

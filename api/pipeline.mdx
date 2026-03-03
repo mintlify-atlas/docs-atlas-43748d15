@@ -1,0 +1,404 @@
+---
+title: 'HKS Pipeline'
+description: 'Compute Heat Kernel Signatures on neural meshes for shape analysis'
+---
+
+The `pipeline` module provides functions for computing Heat Kernel Signatures (HKS) on meshes. HKS is a shape descriptor that captures geometric features at multiple spatial scales, making it ideal for analyzing complex neural morphologies.
+
+## Overview
+
+The HKS pipeline processes large neuron meshes through several stages:
+
+1. **Mesh simplification** - Reduces vertex count while preserving shape
+2. **Mesh splitting** - Divides large meshes into overlapping chunks for efficient computation
+3. **HKS computation** - Calculates heat kernel signatures at multiple timescales
+4. **Agglomeration** - Groups vertices into local domains based on HKS similarity
+5. **Feature aggregation** - Computes summary statistics for each domain
+
+## Result Types
+
+### Result
+
+A NamedTuple containing the full pipeline output.
+
+<ParamField path="simple_mesh" type="tuple">
+  The simplified mesh as (vertices, faces).
+</ParamField>
+
+<ParamField path="mapping" type="np.ndarray">
+  Array mapping original mesh vertices to simplified mesh vertices. Length equals original vertex count.
+</ParamField>
+
+<ParamField path="stitcher" type="MeshStitcher">
+  Object containing information about mesh chunks and overlaps.
+</ParamField>
+
+<ParamField path="simple_features" type="pd.DataFrame">
+  HKS features for each vertex in the simplified mesh.
+</ParamField>
+
+<ParamField path="simple_labels" type="np.ndarray">
+  Domain labels for each vertex in the simplified mesh.
+</ParamField>
+
+<ParamField path="condensed_features" type="pd.DataFrame">
+  Aggregated features for each domain.
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray">
+  Domain labels for each vertex in the original mesh.
+</ParamField>
+
+<ParamField path="condensed_edges" type="pd.DataFrame">
+  Edge table for the domain graph.
+</ParamField>
+
+<ParamField path="timing_info" type="dict">
+  Timing information for each pipeline stage.
+</ParamField>
+
+### CondensedHKSResult
+
+A NamedTuple containing condensed pipeline output with domain-level features.
+
+<ParamField path="simple_mesh" type="tuple">
+  The simplified mesh as (vertices, faces).
+</ParamField>
+
+<ParamField path="mapping" type="np.ndarray">
+  Array mapping original to simplified mesh vertices.
+</ParamField>
+
+<ParamField path="stitcher" type="MeshStitcher">
+  Mesh chunk information.
+</ParamField>
+
+<ParamField path="simple_labels" type="np.ndarray">
+  Domain labels for simplified mesh vertices.
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray">
+  Domain labels for original mesh vertices.
+</ParamField>
+
+<ParamField path="condensed_features" type="pd.DataFrame">
+  Condensed HKS features computed per-chunk then aggregated.
+</ParamField>
+
+<ParamField path="condensed_nodes" type="pd.DataFrame">
+  Node table with domain centroids and auxiliary features.
+</ParamField>
+
+<ParamField path="condensed_edges" type="pd.DataFrame">
+  Edge table for the domain graph.
+</ParamField>
+
+<ParamField path="timing_info" type="dict">
+  Timing information for each pipeline stage.
+</ParamField>
+
+## Functions
+
+### chunked_hks_pipeline
+
+Compute HKS on a mesh using a chunked approach for memory efficiency.
+
+```python
+chunked_hks_pipeline(
+    mesh,
+    query_indices=None,
+    simplify_agg=7,
+    simplify_target_reduction=0.7,
+    overlap_distance=20_000,
+    max_vertex_threshold=20_000,
+    min_vertex_threshold=200,
+    max_overlap_neighbors=40_000,
+    n_components=32,
+    t_min=5e4,
+    t_max=2e7,
+    max_eigenvalue=5e-6,
+    robust=True,
+    mollify_factor=1e-5,
+    truncate_extra=True,
+    drop_first=True,
+    decomposition_dtype=np.float64,
+    compute_hks_kwargs: dict = {},
+    nuc_point=None,
+    distance_threshold=3.0,
+    auxiliary_features=True,
+    n_jobs=-1,
+    verbose=False,
+) -> Result
+```
+
+#### Mesh Parameters
+
+<ParamField path="mesh" type="tuple | Mesh" required>
+  Input mesh as (vertices, faces) tuple or object with `vertices` and `faces` attributes.
+</ParamField>
+
+<ParamField path="query_indices" type="np.ndarray" default="None">
+  Vertex indices to compute HKS for. If None, computes for all vertices. Use this to focus computation on specific regions.
+</ParamField>
+
+#### Simplification Parameters
+
+<ParamField path="simplify_agg" type="int" default="7">
+  Decimation aggressiveness (0-10). Higher values = faster but lower quality. 0 preserves geometry, 10 is fastest.
+</ParamField>
+
+<ParamField path="simplify_target_reduction" type="float" default="0.7">
+  Fraction of triangles to remove. 0.7 means remove 70% of faces, keeping 30%.
+</ParamField>
+
+#### Splitting Parameters
+
+<ParamField path="overlap_distance" type="float" default="20000">
+  Geodesic distance (nm) for overlapping chunks. Larger values reduce distortion but increase computation.
+</ParamField>
+
+<ParamField path="max_vertex_threshold" type="int" default="20000">
+  Maximum vertices per chunk before splitting.
+</ParamField>
+
+<ParamField path="min_vertex_threshold" type="int" default="200">
+  Minimum vertices for a chunk to be included. Filters small disconnected pieces.
+</ParamField>
+
+<ParamField path="max_overlap_neighbors" type="int" default="40000">
+  Maximum neighbors when overlapping chunks. Overrides overlap_distance if reached first.
+</ParamField>
+
+#### HKS Parameters
+
+<ParamField path="n_components" type="int" default="32">
+  Number of HKS timescales. Determines feature dimensionality.
+</ParamField>
+
+<ParamField path="t_min" type="float" default="5e4">
+  Minimum timescale for HKS. Captures fine geometric details.
+</ParamField>
+
+<ParamField path="t_max" type="float" default="2e7">
+  Maximum timescale for HKS. Captures coarse geometric features.
+</ParamField>
+
+<ParamField path="max_eigenvalue" type="float" default="5e-6">
+  Maximum eigenvalue for computation. Larger values = more detail but slower.
+</ParamField>
+
+<ParamField path="robust" type="bool" default="True">
+  Use robust Laplacian for better handling of degenerate meshes. Recommended.
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor for robust Laplacian.
+</ParamField>
+
+<ParamField path="truncate_extra" type="bool" default="True">
+  Truncate extra eigenpairs computed beyond max_eigenvalue.
+</ParamField>
+
+<ParamField path="drop_first" type="bool" default="True">
+  Drop first eigenpair (proportional to vertex areas).
+</ParamField>
+
+<ParamField path="decomposition_dtype" type="np.dtype" default="np.float64">
+  Data type for eigendecomposition. float64 is more accurate, float32 is faster.
+</ParamField>
+
+<ParamField path="compute_hks_kwargs" type="dict" default="{}">
+  Additional keyword arguments for HKS computation.
+</ParamField>
+
+#### Agglomeration Parameters
+
+<ParamField path="distance_threshold" type="float" default="3.0">
+  Threshold for agglomerating vertices based on HKS feature distance.
+</ParamField>
+
+#### Auxiliary Parameters
+
+<ParamField path="nuc_point" type="np.ndarray" default="None">
+  Nucleus coordinates (x, y, z). If provided, computes distance from each vertex to nucleus.
+</ParamField>
+
+<ParamField path="auxiliary_features" type="bool" default="True">
+  Whether to compute additional features like distance to nucleus and component features.
+</ParamField>
+
+#### Execution Parameters
+
+<ParamField path="n_jobs" type="int" default="-1">
+  Number of parallel jobs. -1 uses all available CPUs.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Print progress information.
+</ParamField>
+
+**Returns:** A `Result` NamedTuple containing all pipeline outputs.
+
+**Example:**
+```python
+import numpy as np
+from meshmash.pipeline import chunked_hks_pipeline
+
+# Load your mesh (vertices, faces)
+vertices = np.load('vertices.npy')
+faces = np.load('faces.npy')
+mesh = (vertices, faces)
+
+# Run the pipeline
+result = chunked_hks_pipeline(
+    mesh,
+    simplify_target_reduction=0.8,  # Keep 20% of faces
+    n_components=64,  # 64 HKS timescales
+    distance_threshold=2.5,  # Tighter agglomeration
+    verbose=True
+)
+
+# Access results
+print(f"Original mesh: {len(vertices)} vertices")
+print(f"Simplified mesh: {len(result.simple_mesh[0])} vertices")
+print(f"Found {result.simple_features.shape[0]} domains")
+print(f"HKS computation took {result.timing_info['hks_time']:.2f}s")
+
+# Get domain labels for original mesh
+domain_labels = result.labels
+print(f"Vertex 0 belongs to domain {domain_labels[0]}")
+```
+
+---
+
+### condensed_hks_pipeline
+
+Compute condensed HKS features where agglomeration happens within each chunk before stitching.
+
+```python
+condensed_hks_pipeline(
+    mesh,
+    simplify_agg=7,
+    simplify_target_reduction=0.7,
+    overlap_distance=20_000,
+    max_vertex_threshold=20_000,
+    min_vertex_threshold=200,
+    max_overlap_neighbors=40_000,
+    n_components=32,
+    t_min=5e4,
+    t_max=2e7,
+    max_eigenvalue=5e-6,
+    robust=True,
+    mollify_factor=1e-5,
+    truncate_extra=True,
+    drop_first=True,
+    decomposition_dtype=np.float32,
+    compute_hks_kwargs: dict = {},
+    nuc_point=None,
+    distance_threshold=3.0,
+    auxiliary_features=True,
+    n_jobs=-1,
+    verbose=False,
+) -> CondensedHKSResult
+```
+
+Parameters are the same as `chunked_hks_pipeline`. The key difference is that this function:
+- Computes HKS and agglomeration per-chunk
+- Stitches domain labels across chunks
+- Returns condensed features computed within each chunk
+
+**Returns:** A `CondensedHKSResult` NamedTuple.
+
+**Example:**
+```python
+from meshmash.pipeline import condensed_hks_pipeline
+
+result = condensed_hks_pipeline(
+    mesh,
+    n_components=32,
+    distance_threshold=3.0,
+    verbose=True
+)
+
+# Access condensed features computed per-chunk
+print(f"Condensed features shape: {result.condensed_features.shape}")
+print(f"Node table shape: {result.condensed_nodes.shape}")
+print(f"Edge table shape: {result.condensed_edges.shape}")
+```
+
+---
+
+### compute_condensed_hks
+
+Lower-level function to compute HKS and agglomerate a single mesh without chunking.
+
+```python
+compute_condensed_hks(
+    mesh,
+    n_components=32,
+    t_min=5e4,
+    t_max=2e7,
+    max_eigenvalue=5e-6,
+    robust=True,
+    mollify_factor=1e-5,
+    truncate_extra=True,
+    drop_first=True,
+    decomposition_dtype=np.float32,
+    compute_hks_kwargs: dict = {},
+    distance_threshold=3.0,
+) -> tuple[pd.DataFrame, np.ndarray]
+```
+
+<ParamField path="mesh" type="tuple" required>
+  Input mesh as (vertices, faces).
+</ParamField>
+
+Other parameters match the HKS and agglomeration parameters from `chunked_hks_pipeline`.
+
+**Returns:** A tuple of (condensed_features, labels) where:
+- `condensed_features`: DataFrame of aggregated HKS features per domain
+- `labels`: Array of domain labels for each vertex
+
+**Example:**
+```python
+from meshmash.pipeline import compute_condensed_hks
+
+# For smaller meshes that fit in memory
+features, labels = compute_condensed_hks(
+    mesh,
+    n_components=32,
+    distance_threshold=2.0
+)
+
+print(f"Computed {features.shape[1]} features for {features.shape[0]} domains")
+```
+
+## Pipeline Steps
+
+The HKS pipeline implements the following steps:
+
+1. **Mesh Simplification** - Uses [fast-simplification](https://github.com/pyvista/fast-simplification) to reduce mesh complexity
+
+2. **Mesh Splitting** - Spectral bisection recursively splits the mesh until all chunks are below the vertex threshold, then grows overlaps
+
+3. **HKS Computation** - Implements the Heat Kernel Signature from Sun et al. (2008) using:
+   - Robust Laplacian from Crane et al. (2020)
+   - Band-by-band eigensolver from Vallet and Levy (2008)
+
+4. **Agglomeration** - Uses Ward's method with connectivity constraints to group vertices into domains
+
+5. **Feature Aggregation** - Computes area-weighted mean features for each domain
+
+## Performance Tips
+
+- Use `query_indices` to focus computation on regions of interest
+- Increase `simplify_target_reduction` for faster processing of very large meshes
+- Adjust `max_vertex_threshold` based on available memory
+- Use `n_jobs=-1` to leverage all CPU cores
+- Set `decomposition_dtype=np.float32` for faster computation with slightly lower precision
+
+## References
+
+- Sun et al. (2008) - Heat Kernel Signature
+- Crane et al. (2020) - Robust Laplacian
+- Vallet and Levy (2008) - Band-by-band eigensolver

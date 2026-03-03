@@ -1,0 +1,183 @@
+---
+title: 'Laplacian'
+description: 'Mesh Laplacian operators for spectral geometry processing'
+---
+
+The `laplacian` module provides functions for computing the cotangent Laplacian and area matrices on triangle meshes. These discrete operators are fundamental to spectral mesh processing and differential geometry computations.
+
+## Mathematical Background
+
+The **cotangent Laplacian** is a discrete approximation of the Laplace-Beltrami operator on surfaces. For a mesh function f, the discrete Laplacian is:
+
+```
+(Lf)_i = Σ_j w_ij(f_i - f_j)
+```
+
+where the weights w_ij are computed using cotangent angles of adjacent triangles.
+
+The **area matrix** M is a diagonal matrix where M_ii represents the Voronoi area associated with vertex i, approximated as one-third of the area of adjacent triangles.
+
+## Functions
+
+### area_matrix
+
+```python
+def area_matrix(mesh: Mesh) -> sparse.dia_matrix
+```
+
+Compute the diagonal matrix of lumped vertex areas for mesh Laplacian.
+
+Entry i on the diagonal is the area of vertex i, approximated as one third of the area of adjacent triangles. This provides the mass matrix M used in the generalized eigenvalue problem Lφ = λMφ.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh as either a tuple `(vertices, faces)` where vertices is an (n,3) array of coordinates and faces is an (m,3) array of triangle indices, or an object with `vertices` and `faces` attributes.
+</ParamField>
+
+**Returns**
+
+<ResponseField name="M" type="scipy.sparse.dia_matrix">
+  (n,n) sparse diagonal matrix of vertex areas in dia format
+</ResponseField>
+
+**Example**
+
+```python
+import numpy as np
+from meshmash.laplacian import area_matrix
+
+# Create a simple mesh (tetrahedron)
+vertices = np.array([
+    [0, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1]
+])
+faces = np.array([
+    [0, 1, 2],
+    [0, 1, 3],
+    [0, 2, 3],
+    [1, 2, 3]
+])
+
+M = area_matrix((vertices, faces))
+vertex_areas = M.diagonal()
+print(f"Vertex areas: {vertex_areas}")
+```
+
+---
+
+### cotangent_laplacian
+
+```python
+def cotangent_laplacian(
+    mesh: Mesh,
+    robust: bool = False,
+    mollify_factor: float = 1e-5
+) -> tuple[sparse.csc_array, sparse.dia_array]
+```
+
+Compute the cotangent Laplacian and area matrix for a mesh.
+
+This is the main function for obtaining the discrete Laplace-Beltrami operator. The cotangent weights provide a discrete approximation that converges to the continuous Laplace-Beltrami operator as the mesh resolution increases.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh as either a tuple `(vertices, faces)` or an object with `vertices` and `faces` attributes.
+</ParamField>
+
+<ParamField path="robust" type="bool" default="False">
+  If True, use the robust Laplacian computation from Sharp & Crane (2020) which handles non-manifold meshes. Requires the `robust-laplacian` package to be installed.
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor used when computing the robust Laplacian. Only applies when `robust=True`. Larger values make the operator more numerically stable but less accurate.
+</ParamField>
+
+**Returns**
+
+<ResponseField name="L" type="scipy.sparse.csc_array">
+  (n,n) sparse cotangent Laplacian matrix in CSC format
+</ResponseField>
+
+<ResponseField name="M" type="scipy.sparse.dia_array">
+  (n,n) sparse diagonal area matrix
+</ResponseField>
+
+**Example**
+
+```python
+import numpy as np
+from meshmash.laplacian import cotangent_laplacian
+
+# Load your mesh
+vertices = ...  # (n, 3) array
+faces = ...     # (m, 3) array
+mesh = (vertices, faces)
+
+# Compute standard cotangent Laplacian
+L, M = cotangent_laplacian(mesh)
+
+# For non-manifold or poor quality meshes, use robust mode
+L_robust, M_robust = cotangent_laplacian(mesh, robust=True)
+
+# Solve Laplace equation: Lx = 0
+# (subject to boundary conditions)
+```
+
+**Mathematical Details**
+
+The cotangent weight between vertices i and j is:
+
+```
+w_ij = (cot α + cot β) / 2
+```
+
+where α and β are the angles opposite to edge (i,j) in the two adjacent triangles.
+
+---
+
+### compute_vertex_areas
+
+```python
+def compute_vertex_areas(
+    mesh: Mesh,
+    robust: bool = False,
+    mollify_factor: float = 1e-5
+) -> np.ndarray
+```
+
+Compute the area associated with each vertex of the mesh.
+
+This is a convenience function that returns the diagonal of the area matrix as a 1D array.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh as either a tuple `(vertices, faces)` or an object with `vertices` and `faces` attributes.
+</ParamField>
+
+<ParamField path="robust" type="bool" default="False">
+  If True, use the robust Laplacian computation to derive vertex areas. Requires the `robust-laplacian` package.
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor for robust computation. Only applies when `robust=True`.
+</ParamField>
+
+**Returns**
+
+<ResponseField name="areas" type="np.ndarray">
+  (n,) array of vertex areas
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.laplacian import compute_vertex_areas
+
+areas = compute_vertex_areas(mesh)
+print(f"Total surface area: {areas.sum()}")
+print(f"Average vertex area: {areas.mean()}")
+```
+
+## References
+
+- Cotangent weights formulation adapted from [pyFM](https://github.com/RobinMagnet/pyFM/blob/master/pyFM/mesh/laplacian.py) (MIT License)
+- Sharp, N., & Crane, K. (2020). "A Laplacian for Nonmanifold Triangle Meshes." Computer Graphics Forum.

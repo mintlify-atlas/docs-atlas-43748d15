@@ -1,0 +1,245 @@
+---
+title: 'CAVE Integration'
+description: 'Functions for integrating MeshMash with CAVE neuroscience databases'
+---
+
+The `cave` module provides utilities for working with CAVE (Connectome Annotation Versioning Engine) neuroscience databases. These functions help retrieve neuron metadata, synapses, and map them to mesh structures.
+
+## Overview
+
+CAVE is a framework for storing and versioning large-scale connectomics data. This module provides functions to:
+- Find nucleus locations for neurons
+- Query synaptic connections
+- Map synapses to mesh vertices
+
+## Functions
+
+### find_nucleus_point
+
+Find the nucleus point for a given neuron root ID in the CAVE database.
+
+```python
+find_nucleus_point(
+    root_id: int,
+    client: CAVEclient,
+    update_root_id: Union[bool, str] = True,
+) -> Optional[np.ndarray]
+```
+
+<ParamField path="root_id" type="int" required>
+  The root ID of the neuron in the chunked graph.
+</ParamField>
+
+<ParamField path="client" type="CAVEclient" required>
+  An initialized CAVEclient instance connected to the desired datastack.
+</ParamField>
+
+<ParamField path="update_root_id" type="Union[bool, str]" default="True">
+  Whether to update the root_id to the latest version. Can be:
+  - `True`: Automatically update to latest root
+  - `False`: Use the provided root_id as-is
+  - `"check"`: Verify the root_id is current and raise error if not
+</ParamField>
+
+**Returns:** A numpy array of shape (1, 3) containing the nucleus coordinates in nm, or None if not found.
+
+**Example:**
+```python
+from caveclient import CAVEclient
+from meshmash.cave import find_nucleus_point
+
+client = CAVEclient('minnie65_public')
+root_id = 864691135639556411
+
+nuc_coords = find_nucleus_point(root_id, client)
+print(f"Nucleus at: {nuc_coords}")
+```
+
+---
+
+### get_synapses
+
+Retrieve synapses for one or more neurons from the CAVE database.
+
+```python
+get_synapses(
+    root_ids,
+    client,
+    side="pre",
+    materialization_version=None,
+    timestamp=None
+)
+```
+
+<ParamField path="root_ids" type="int | list | np.ndarray | pd.Series" required>
+  Single root ID or collection of root IDs to query synapses for.
+</ParamField>
+
+<ParamField path="client" type="CAVEclient" required>
+  An initialized CAVEclient instance.
+</ParamField>
+
+<ParamField path="side" type="str" default="pre">
+  Which side of the synapse to query:
+  - `"pre"`: Presynaptic (output) synapses
+  - `"post"`: Postsynaptic (input) synapses
+</ParamField>
+
+<ParamField path="materialization_version" type="int" default="None">
+  Specific materialization version to query. If None, uses the latest version.
+</ParamField>
+
+<ParamField path="timestamp" type="datetime.datetime" default="None">
+  Timestamp for querying synapses at a specific point in time.
+</ParamField>
+
+**Returns:** A pandas DataFrame containing synapse information with positions split into x, y, z columns.
+
+**Example:**
+```python
+from caveclient import CAVEclient
+from meshmash.cave import get_synapses
+
+client = CAVEclient('minnie65_public')
+root_id = 864691135639556411
+
+# Get all presynaptic (output) synapses
+output_synapses = get_synapses(root_id, client, side="pre")
+print(f"Found {len(output_synapses)} output synapses")
+
+# Get postsynaptic (input) synapses
+input_synapses = get_synapses(root_id, client, side="post")
+print(f"Found {len(input_synapses)} input synapses")
+```
+
+---
+
+### get_synapses_at_oldest
+
+Retrieve synapses for a neuron at the oldest available materialization version.
+
+```python
+get_synapses_at_oldest(
+    root_id,
+    client,
+    side="pre",
+    check_root=False
+)
+```
+
+<ParamField path="root_id" type="int" required>
+  The root ID of the neuron.
+</ParamField>
+
+<ParamField path="client" type="CAVEclient" required>
+  An initialized CAVEclient instance.
+</ParamField>
+
+<ParamField path="side" type="str" default="pre">
+  Which side of the synapse to query ("pre" or "post").
+</ParamField>
+
+<ParamField path="check_root" type="bool" default="False">
+  Whether to verify the root exists at the oldest timestamp.
+</ParamField>
+
+**Returns:** A pandas DataFrame containing synapse information from the oldest materialization.
+
+**Example:**
+```python
+from caveclient import CAVEclient
+from meshmash.cave import get_synapses_at_oldest
+
+client = CAVEclient('minnie65_public')
+root_id = 864691135639556411
+
+# Get historical synapses
+old_synapses = get_synapses_at_oldest(root_id, client, side="pre")
+print(f"Found {len(old_synapses)} synapses at oldest version")
+```
+
+---
+
+### get_synapse_mapping
+
+Map synapses to their nearest vertices on a mesh.
+
+```python
+get_synapse_mapping(
+    root_id: int,
+    mesh: Mesh,
+    client: CAVEclient,
+    version: Optional[int] = None,
+    timestamp: Optional[datetime.datetime] = None,
+    distance_threshold: Optional[float] = None,
+    mapping_column: str = "ctr_pt_position",
+    side: str = "post",
+) -> np.ndarray
+```
+
+<ParamField path="root_id" type="int" required>
+  The root ID of the neuron.
+</ParamField>
+
+<ParamField path="mesh" type="Mesh" required>
+  The mesh to map synapses onto. Can be a tuple of (vertices, faces) or a mesh object.
+</ParamField>
+
+<ParamField path="client" type="CAVEclient" required>
+  An initialized CAVEclient instance.
+</ParamField>
+
+<ParamField path="version" type="int" default="None">
+  Materialization version to use. If set to 0, uses the oldest version. If None, uses latest.
+</ParamField>
+
+<ParamField path="timestamp" type="datetime.datetime" default="None">
+  Timestamp for querying synapses.
+</ParamField>
+
+<ParamField path="distance_threshold" type="float" default="None">
+  Maximum distance in nm for mapping a synapse to a mesh vertex. Synapses beyond this distance are excluded.
+</ParamField>
+
+<ParamField path="mapping_column" type="str" default="ctr_pt_position">
+  Column prefix to use for synapse position coordinates.
+</ParamField>
+
+<ParamField path="side" type="str" default="post">
+  Which side of the synapse to query ("pre" or "post").
+</ParamField>
+
+**Returns:** A numpy array of shape (N, 2) where each row contains [synapse_id, mesh_vertex_index]. Only synapses successfully mapped to the mesh are included.
+
+**Example:**
+```python
+from caveclient import CAVEclient
+from meshmash import get_mesh
+from meshmash.cave import get_synapse_mapping
+
+client = CAVEclient('minnie65_public')
+root_id = 864691135639556411
+
+# Get the neuron mesh
+mesh = get_mesh(root_id, client)
+
+# Map postsynaptic inputs to mesh vertices
+synapse_mapping = get_synapse_mapping(
+    root_id,
+    mesh,
+    client,
+    side="post",
+    distance_threshold=500.0  # within 500 nm
+)
+
+print(f"Mapped {len(synapse_mapping)} synapses to mesh")
+for synapse_id, vertex_idx in synapse_mapping[:5]:
+    print(f"Synapse {synapse_id} -> vertex {vertex_idx}")
+```
+
+## Notes
+
+- All coordinates are in nanometers (nm) as used by CAVE databases
+- The module supports both "minnie" and "v1dd" datastacks with dataset-specific logic
+- Synapses are automatically filtered to exclude autapses (self-connections)
+- Root IDs may change over time as proofreading occurs; use `update_root_id` parameter to handle versioning

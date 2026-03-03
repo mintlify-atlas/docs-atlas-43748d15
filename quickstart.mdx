@@ -1,80 +1,302 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get started with MeshMash in minutes with practical examples
 ---
 
-## Get started in three steps
+# Quick Start Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through the essential features of MeshMash with real, working examples.
 
-### Step 1: Set up your local environment
+## Creating a Mesh
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+MeshMash works with meshes represented as tuples of vertices and faces:
 
-### Step 2: Deploy your changes
+```python
+import numpy as np
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+# Define vertices (N x 3 array)
+vertices = np.array([
+    [0.0, 0.0, 0.0],
+    [1.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0],
+    [0.0, 0.0, 1.0]
+], dtype=np.float64)
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+# Define faces (M x 3 array of vertex indices)
+faces = np.array([
+    [0, 1, 2],
+    [0, 1, 3],
+    [0, 2, 3],
+    [1, 2, 3]
+], dtype=np.int32)
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+# Create mesh tuple
+mesh = (vertices, faces)
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  MeshMash also accepts objects with `vertices` and `faces` attributes, such as PyVista PolyData.
 </Note>
+
+## Basic Operations
+
+### Computing the Laplacian
+
+The cotangent Laplacian is fundamental to spectral mesh processing:
+
+```python
+from meshmash import cotangent_laplacian
+
+# Compute cotangent Laplacian and area matrix
+L, M = cotangent_laplacian(mesh)
+
+print(f"Laplacian shape: {L.shape}")  # (n_vertices, n_vertices)
+print(f"Area matrix shape: {M.shape}")  # (n_vertices, n_vertices)
+```
+
+<Tip>
+  For non-manifold meshes, use the robust formulation:
+  ```python
+  L, M = cotangent_laplacian(mesh, robust=True, mollify_factor=1e-5)
+  ```
+</Tip>
+
+### Spectral Decomposition
+
+Decompose the mesh into its spectral components:
+
+```python
+from meshmash import decompose_mesh
+
+# Compute first 50 eigenpairs
+eigenvalues, eigenvectors = decompose_mesh(
+    mesh,
+    n_components=50,
+    robust=True
+)
+
+print(f"Eigenvalues shape: {eigenvalues.shape}")    # (50,)
+print(f"Eigenvectors shape: {eigenvectors.shape}")  # (n_vertices, 50)
+```
+
+## Advanced Features
+
+### Heat Kernel Signatures (HKS)
+
+Compute multi-scale geometric features using HKS:
+
+<Steps>
+  <Step title="Import the function">
+    ```python
+    from meshmash import compute_hks
+    ```
+  </Step>
+
+  <Step title="Set parameters">
+    ```python
+    max_eigenvalue = 1e-8  # Frequency cutoff
+    n_components = 32      # Number of scales
+    ```
+  </Step>
+
+  <Step title="Compute HKS features">
+    ```python
+    hks_features = compute_hks(
+        mesh,
+        max_eigenvalue=max_eigenvalue,
+        n_components=n_components,
+        robust=True,
+        verbose=True
+    )
+    
+    print(f"HKS features shape: {hks_features.shape}")  # (n_vertices, 32)
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  HKS features are invariant to isometric deformations, making them ideal for shape matching and analysis.
+</Info>
+
+### Mesh Utilities
+
+<CodeGroup>
+```python Extract Largest Component
+from meshmash import largest_mesh_component
+
+# Get only the largest connected component
+largest = largest_mesh_component(mesh)
+vertices, faces = largest
+```
+
+```python Subset by Indices
+from meshmash import subset_mesh_by_indices
+
+# Extract submesh containing specific vertices
+indices = np.array([0, 1, 2, 5, 10])
+submesh = subset_mesh_by_indices(mesh, indices)
+```
+
+```python Convert to Graph
+from meshmash import mesh_to_adjacency
+
+# Get sparse adjacency matrix
+adj = mesh_to_adjacency(mesh)
+print(f"Adjacency shape: {adj.shape}")
+```
+
+```python Combine Meshes
+from meshmash import combine_meshes
+
+# Merge multiple meshes
+meshes = [mesh1, mesh2, mesh3]
+combined = combine_meshes(meshes)
+```
+</CodeGroup>
+
+## Spectral Filtering
+
+### Custom Spectral Filters
+
+Apply custom filters in the spectral domain:
+
+```python
+from meshmash import spectral_geometry_filter, construct_bspline_filter
+
+# Create a B-spline filter
+filter_func = construct_bspline_filter(
+    e_min=0.0,
+    e_max=1e-8,
+    n_components=32
+)
+
+# Apply filter to mesh geometry
+filtered_features = spectral_geometry_filter(
+    mesh,
+    filter=filter_func,
+    max_eigenvalue=1e-8,
+    band_size=50,
+    robust=True,
+    verbose=True
+)
+```
+
+### Geometry Vectors
+
+Compute geometric descriptors using spectral methods:
+
+```python
+from meshmash import compute_geometry_vectors
+
+geometry_features = compute_geometry_vectors(
+    mesh,
+    max_eigenvalue=1e-8,
+    n_components=32,
+    robust=True
+)
+
+print(f"Shape: {geometry_features.shape}")  # (n_vertices, 32)
+```
+
+## Working with PyVista
+
+MeshMash integrates seamlessly with PyVista:
+
+```python
+import pyvista as pv
+from meshmash import mesh_to_poly, poly_to_mesh, compute_hks
+
+# Load mesh from file
+poly = pv.read('model.ply')
+
+# Convert to MeshMash format
+mesh = poly_to_mesh(poly)
+
+# Process with MeshMash
+hks = compute_hks(mesh, max_eigenvalue=1e-8, n_components=16)
+
+# Add features to PyVista mesh for visualization
+poly['hks_0'] = hks[:, 0]
+poly.plot(scalars='hks_0', cmap='viridis')
+```
+
+## Hierarchical Mesh Splitting
+
+For large meshes, use spectral splitting:
+
+```python
+from meshmash import fit_mesh_split, apply_mesh_split
+
+# Split mesh hierarchically
+split_info = fit_mesh_split(
+    mesh,
+    max_vertex_threshold=20000,  # Maximum vertices per submesh
+    min_vertex_threshold=100,    # Minimum vertices per submesh
+    verbose=True
+)
+
+# Access submeshes
+for submesh_idx, submesh in enumerate(split_info['submeshes']):
+    vertices, faces = submesh
+    print(f"Submesh {submesh_idx}: {len(vertices)} vertices")
+```
+
+<Warning>
+  Mesh splitting is stochastic. Results may vary slightly between runs due to the spectral decomposition.
+</Warning>
+
+## Connected Components
+
+Analyze mesh topology:
+
+```python
+from meshmash import mesh_connected_components, threshold_mesh_by_component_size
+
+# Iterate over components larger than threshold
+for component in mesh_connected_components(mesh, size_threshold=100):
+    vertices, faces = component
+    print(f"Component with {len(vertices)} vertices")
+
+# Filter mesh by component size
+filtered_mesh, kept_indices = threshold_mesh_by_component_size(
+    mesh,
+    size_threshold=1000
+)
+```
+
+## Label Propagation
+
+Propagate labels across mesh surfaces:
+
+```python
+from meshmash import label_propagation
+import numpy as np
+
+# Create initial labels (most unlabeled = -1)
+labels = np.full(len(vertices), -1, dtype=np.int32)
+labels[0] = 0   # Label first vertex as class 0
+labels[10] = 1  # Label 11th vertex as class 1
+
+# Propagate labels
+propagated_labels = label_propagation(mesh, labels)
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Mesh Splitting" icon="scissors" href="/guides/mesh-splitting">
+    Learn how to split large meshes for parallel processing
+  </Card>
+  
+  <Card title="Spectral Filtering" icon="wave" href="/guides/spectral-filtering">
+    Apply custom spectral filters to meshes
+  </Card>
+  
+  <Card title="Heat Kernel Signature" icon="fire" href="/guides/heat-kernel-signature">
+    Compute HKS features for shape analysis
+  </Card>
+  
+  <Card title="GitHub" icon="github" href="https://github.com/bdpedigo/meshmash">
+    View source code and contribute
+  </Card>
+</CardGroup>

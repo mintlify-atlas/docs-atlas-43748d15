@@ -1,0 +1,621 @@
+---
+title: 'Decompose'
+description: 'Eigendecomposition and spectral filtering for mesh analysis'
+---
+
+The `decompose` module provides functions for computing eigendecompositions of the mesh Laplacian and applying spectral filters to extract geometric features. These tools enable spectral geometry processing techniques like Heat Kernel Signatures (HKS) and other intrinsic shape descriptors.
+
+## Mathematical Background
+
+Spectral decomposition solves the **generalized eigenvalue problem**:
+
+```
+Lφ = λMφ
+```
+
+where L is the cotangent Laplacian, M is the area matrix, and (λ, φ) are eigenvalue-eigenvector pairs. The eigenvectors form an orthonormal basis for functions on the mesh, analogous to the Fourier basis for functions on Euclidean space.
+
+## Core Functions
+
+### decompose_laplacian
+
+```python
+def decompose_laplacian(
+    L,
+    M,
+    n_components: int = 100,
+    op_inv = None,
+    sigma: float = -1e-10,
+    tol: float = 1e-10,
+    ncv = None,
+    prefactor = None
+) -> tuple[np.ndarray, np.ndarray]
+```
+
+Solve the generalized eigenvalue problem Lφ = λMφ.
+
+Computes the smallest eigenvalues and corresponding eigenvectors of the Laplacian operator. Uses sparse eigensolvers (ARPACK) for efficiency on large meshes.
+
+<ParamField path="L" type="sparse matrix">
+  (n,n) sparse matrix of cotangent weights (Laplacian operator)
+</ParamField>
+
+<ParamField path="M" type="sparse matrix">
+  (n,n) sparse matrix of area weights (mass matrix)
+</ParamField>
+
+<ParamField path="n_components" type="int" default="100">
+  Number of eigenvalues/eigenvectors to compute
+</ParamField>
+
+<ParamField path="op_inv" type="LinearOperator" default="None">
+  Optional inverse operator for shift-invert mode. If None, will be computed based on `prefactor`.
+</ParamField>
+
+<ParamField path="sigma" type="float" default="-1e-10">
+  Shift parameter for shift-invert mode. Eigenvalues near sigma are found most accurately.
+</ParamField>
+
+<ParamField path="tol" type="float" default="1e-10">
+  Tolerance for eigenvalue convergence
+</ParamField>
+
+<ParamField path="ncv" type="int" default="None">
+  Number of Lanczos vectors for ARPACK. Larger values may improve convergence but use more memory.
+</ParamField>
+
+<ParamField path="prefactor" type="str" default="None">
+  Preconditioner type. Options: `"lu"` for LU decomposition. Improves convergence for ill-conditioned problems.
+</ParamField>
+
+**Returns**
+
+<ResponseField name="eigenvalues" type="np.ndarray">
+  (n_components,) array of eigenvalues sorted in ascending order
+</ResponseField>
+
+<ResponseField name="eigenvectors" type="np.ndarray">
+  (n, n_components) array of corresponding eigenvectors
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.laplacian import cotangent_laplacian
+from meshmash.decompose import decompose_laplacian
+
+L, M = cotangent_laplacian(mesh)
+eigenvalues, eigenvectors = decompose_laplacian(L, M, n_components=50)
+
+print(f"First 5 eigenvalues: {eigenvalues[:5]}")
+print(f"Eigenvalue range: [{eigenvalues.min()}, {eigenvalues.max()}]")
+```
+
+---
+
+### decompose_mesh
+
+```python
+def decompose_mesh(
+    mesh: Mesh,
+    n_components: int = 100,
+    op_inv = None,
+    sigma: float = -1e-10,
+    tol: float = 1e-10,
+    robust: bool = True,
+    mollify_factor: float = 1e-5,
+    prefactor = None
+) -> tuple[np.ndarray, np.ndarray]
+```
+
+Compute eigendecomposition directly from a mesh.
+
+This is a convenience function that combines Laplacian computation and eigendecomposition in one step.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh as tuple `(vertices, faces)` or object with those attributes
+</ParamField>
+
+<ParamField path="n_components" type="int" default="100">
+  Number of eigenvalues/eigenvectors to compute
+</ParamField>
+
+<ParamField path="op_inv" type="LinearOperator" default="None">
+  Optional inverse operator for shift-invert mode
+</ParamField>
+
+<ParamField path="sigma" type="float" default="-1e-10">
+  Shift parameter for eigenvalue solver
+</ParamField>
+
+<ParamField path="tol" type="float" default="1e-10">
+  Tolerance for convergence
+</ParamField>
+
+<ParamField path="robust" type="bool" default="True">
+  Use robust Laplacian computation for non-manifold meshes
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor for robust Laplacian
+</ParamField>
+
+<ParamField path="prefactor" type="str" default="None">
+  Preconditioner type (e.g., `"lu"`)
+</ParamField>
+
+**Returns**
+
+<ResponseField name="eigenvalues" type="np.ndarray">
+  (n_components,) array of eigenvalues
+</ResponseField>
+
+<ResponseField name="eigenvectors" type="np.ndarray">
+  (n, n_components) array of eigenvectors
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import decompose_mesh
+
+eigenvalues, eigenvectors = decompose_mesh(
+    mesh,
+    n_components=100,
+    robust=True
+)
+
+# Reconstruct a function using the spectral basis
+coefficients = eigenvectors.T @ vertex_function
+reconstructed = eigenvectors @ coefficients
+```
+
+---
+
+### decompose_laplacian_by_bands
+
+```python
+def decompose_laplacian_by_bands(
+    L,
+    M,
+    max_eigenvalue: float = 1e-9,
+    band_size: int = 50,
+    truncate_extra: bool = True,
+    verbose: bool = False
+) -> tuple[np.ndarray, np.ndarray]
+```
+
+Compute eigendecomposition up to a maximum eigenvalue using a band-by-band algorithm.
+
+This method is more efficient than computing a fixed number of eigenpairs when you want all eigenvalues below a threshold. Based on the algorithm from Levy & Zhang (2009).
+
+<ParamField path="L" type="sparse matrix">
+  (n,n) Laplacian matrix
+</ParamField>
+
+<ParamField path="M" type="sparse matrix">
+  (n,n) area matrix
+</ParamField>
+
+<ParamField path="max_eigenvalue" type="float" default="1e-9">
+  Compute all eigenvalues up to this threshold
+</ParamField>
+
+<ParamField path="band_size" type="int" default="50">
+  Number of eigenvalues to compute in each band. Affects performance but not results.
+</ParamField>
+
+<ParamField path="truncate_extra" type="bool" default="True">
+  If True, truncate to exactly `max_eigenvalue`. Otherwise may overshoot by up to one band.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Print progress information
+</ParamField>
+
+**Returns**
+
+<ResponseField name="eigenvalues" type="np.ndarray">
+  Array of all eigenvalues up to max_eigenvalue
+</ResponseField>
+
+<ResponseField name="eigenvectors" type="np.ndarray">
+  (n, k) array of corresponding eigenvectors where k is determined by max_eigenvalue
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import decompose_laplacian_by_bands
+
+# Compute all eigenpairs with eigenvalue < 1e-8
+eigenvalues, eigenvectors = decompose_laplacian_by_bands(
+    L, M,
+    max_eigenvalue=1e-8,
+    band_size=50,
+    verbose=True
+)
+
+print(f"Computed {len(eigenvalues)} eigenpairs")
+```
+
+---
+
+## Spectral Filtering
+
+### spectral_geometry_filter
+
+```python
+def spectral_geometry_filter(
+    mesh: Mesh,
+    filter: Optional[Callable] = None,
+    max_eigenvalue: float = 1e-8,
+    band_size: int = 50,
+    truncate_extra: bool = True,
+    drop_first: bool = True,
+    decomposition_dtype: Optional[np.dtype] = np.float64,
+    robust: bool = True,
+    mollify_factor: float = 1e-5,
+    verbose: int = False
+) -> np.ndarray
+```
+
+Apply a spectral filter to the geometry of a mesh to extract features.
+
+This is the core function for computing spectral geometric features. It decomposes the Laplacian and applies a user-defined filter function to the eigenvalues to produce per-vertex feature vectors.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh as tuple `(vertices, faces)` or object with those attributes. Can also be a pre-computed `(L, M)` tuple of Laplacian and area matrices.
+</ParamField>
+
+<ParamField path="filter" type="Callable" default="None">
+  Function that takes 1D array of eigenvalues and returns 2D array of filter coefficients with shape `(n_filters, n_eigenvalues)`. If None, returns the eigenvectors directly.
+</ParamField>
+
+<ParamField path="max_eigenvalue" type="float" default="1e-8">
+  Maximum eigenvalue to compute up to
+</ParamField>
+
+<ParamField path="band_size" type="int" default="50">
+  Number of eigenvalues per band in the band-by-band algorithm
+</ParamField>
+
+<ParamField path="truncate_extra" type="bool" default="True">
+  Truncate to exactly `max_eigenvalue`
+</ParamField>
+
+<ParamField path="drop_first" type="bool" default="True">
+  Drop the first eigenpair (eigenvalue=0, constant eigenvector) which is often not useful
+</ParamField>
+
+<ParamField path="decomposition_dtype" type="np.dtype" default="np.float64">
+  Numerical precision for computations. Use `np.float32` for faster computation with slightly lower accuracy.
+</ParamField>
+
+<ParamField path="robust" type="bool" default="True">
+  Use robust Laplacian computation
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor for robust Laplacian
+</ParamField>
+
+<ParamField path="verbose" type="int" default="False">
+  Verbosity level. Higher values print more information.
+</ParamField>
+
+**Returns**
+
+<ResponseField name="features" type="np.ndarray">
+  (n_vertices, n_features) array of spectral features. If `filter=None`, returns tuple `(eigenvalues, eigenvectors)` instead.
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import spectral_geometry_filter
+import numpy as np
+
+# Define a custom filter (e.g., low-pass filter)
+def low_pass_filter(eigenvalues):
+    cutoff = 1e-9
+    weights = (eigenvalues < cutoff).astype(float)
+    return weights[np.newaxis, :]  # shape: (1, n_eigenvalues)
+
+features = spectral_geometry_filter(
+    mesh,
+    filter=low_pass_filter,
+    max_eigenvalue=1e-8,
+    robust=True
+)
+```
+
+**Notes**
+
+Numerical errors often indicate a malformed mesh. Using `robust=True` is recommended for non-manifold or poor quality meshes.
+
+**References**
+
+- [1] Vallet, B., & Levy, B. (2008). "Spectral Geometry Processing with Manifold Harmonics."
+- [2] Sharp, N., & Crane, K. (2020). "A Laplacian for Nonmanifold Triangle Meshes."
+
+---
+
+## High-Level Feature Extractors
+
+### compute_hks
+
+```python
+def compute_hks(
+    mesh: Mesh,
+    max_eigenvalue: float = 1e-8,
+    t_max: Optional[float] = None,
+    t_min: Optional[float] = None,
+    n_components: int = 32,
+    band_size: int = 50,
+    truncate_extra: bool = False,
+    drop_first: bool = False,
+    robust: bool = True,
+    mollify_factor: float = 1e-5,
+    decomposition_dtype: Optional[np.dtype] = np.float64,
+    verbose: int = False
+) -> np.ndarray
+```
+
+Compute **Heat Kernel Signatures** (HKS) for each vertex.
+
+HKS is an intrinsic, multi-scale shape descriptor that captures local geometric information at different time scales. It is invariant to isometric deformations.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="max_eigenvalue" type="float" default="1e-8">
+  Maximum eigenvalue for decomposition
+</ParamField>
+
+<ParamField path="t_max" type="float" default="None">
+  Maximum time scale for heat diffusion
+</ParamField>
+
+<ParamField path="t_min" type="float" default="None">
+  Minimum time scale for heat diffusion
+</ParamField>
+
+<ParamField path="n_components" type="int" default="32">
+  Number of time scales (features per vertex)
+</ParamField>
+
+<ParamField path="band_size" type="int" default="50">
+  Band size for eigendecomposition
+</ParamField>
+
+<ParamField path="truncate_extra" type="bool" default="False">
+  Truncate to max_eigenvalue exactly
+</ParamField>
+
+<ParamField path="drop_first" type="bool" default="False">
+  Drop first eigenpair
+</ParamField>
+
+<ParamField path="robust" type="bool" default="True">
+  Use robust Laplacian
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor
+</ParamField>
+
+<ParamField path="decomposition_dtype" type="np.dtype" default="np.float64">
+  Computation precision
+</ParamField>
+
+<ParamField path="verbose" type="int" default="False">
+  Verbosity level
+</ParamField>
+
+**Returns**
+
+<ResponseField name="hks" type="np.ndarray">
+  (n_vertices, n_components) array of Heat Kernel Signatures
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import compute_hks
+
+hks_features = compute_hks(
+    mesh,
+    max_eigenvalue=1e-7,
+    n_components=64,
+    robust=True,
+    verbose=True
+)
+
+# Use for shape matching, segmentation, etc.
+print(f"HKS shape: {hks_features.shape}")
+```
+
+**Mathematical Background**
+
+The Heat Kernel Signature at time t is defined as:
+
+```
+HKS(x, t) = Σ_i exp(-λ_i * t) * φ_i(x)²
+```
+
+where λ_i and φ_i are eigenvalues and eigenvectors of the Laplacian.
+
+---
+
+### compute_geometry_vectors
+
+```python
+def compute_geometry_vectors(
+    mesh: Mesh,
+    max_eigenvalue: float = 1e-8,
+    n_components: int = 32,
+    band_size: int = 50,
+    truncate_extra: bool = False,
+    drop_first: bool = False,
+    robust: bool = True,
+    mollify_factor: float = 1e-5,
+    decomposition_dtype: Optional[np.dtype] = np.float64,
+    verbose: int = False
+) -> np.ndarray
+```
+
+Compute spectral geometry feature vectors using B-spline filters.
+
+This function uses B-spline basis functions distributed across the eigenvalue spectrum to create multi-scale geometric features.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="max_eigenvalue" type="float" default="1e-8">
+  Maximum eigenvalue for decomposition
+</ParamField>
+
+<ParamField path="n_components" type="int" default="32">
+  Number of B-spline basis functions (features per vertex)
+</ParamField>
+
+<ParamField path="band_size" type="int" default="50">
+  Band size for eigendecomposition
+</ParamField>
+
+<ParamField path="truncate_extra" type="bool" default="False">
+  Truncate to max_eigenvalue exactly
+</ParamField>
+
+<ParamField path="drop_first" type="bool" default="False">
+  Drop first eigenpair
+</ParamField>
+
+<ParamField path="robust" type="bool" default="True">
+  Use robust Laplacian
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor
+</ParamField>
+
+<ParamField path="decomposition_dtype" type="np.dtype" default="np.float64">
+  Computation precision
+</ParamField>
+
+<ParamField path="verbose" type="int" default="False">
+  Verbosity level
+</ParamField>
+
+**Returns**
+
+<ResponseField name="features" type="np.ndarray">
+  (n_vertices, n_components) array of geometry feature vectors
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import compute_geometry_vectors
+
+geom_features = compute_geometry_vectors(
+    mesh,
+    max_eigenvalue=1e-7,
+    n_components=128,
+    robust=True
+)
+
+# Use for machine learning on mesh data
+print(f"Feature vectors shape: {geom_features.shape}")
+```
+
+---
+
+## Utility Functions
+
+### get_hks_filter
+
+```python
+def get_hks_filter(
+    t_max: Optional[float] = None,
+    t_min: Optional[float] = None,
+    n_scales: int = 32,
+    dtype: np.dtype = np.float64
+) -> Callable
+```
+
+Create a Heat Kernel Signature filter function.
+
+Returns a callable that computes HKS coefficients for given eigenvalues.
+
+<ParamField path="t_max" type="float" default="None">
+  Maximum time scale
+</ParamField>
+
+<ParamField path="t_min" type="float" default="None">
+  Minimum time scale
+</ParamField>
+
+<ParamField path="n_scales" type="int" default="32">
+  Number of time scales
+</ParamField>
+
+<ParamField path="dtype" type="np.dtype" default="np.float64">
+  Data type for computation
+</ParamField>
+
+**Returns**
+
+<ResponseField name="filter" type="Callable">
+  Function that takes eigenvalues and returns HKS filter coefficients
+</ResponseField>
+
+---
+
+### construct_bspline_filter
+
+```python
+def construct_bspline_filter(
+    e_min: float,
+    e_max: float,
+    n_components: int
+) -> Callable
+```
+
+Construct a B-spline based spectral filter.
+
+Creates a filter using cubic B-spline basis functions uniformly distributed in the eigenvalue range [e_min, e_max].
+
+<ParamField path="e_min" type="float">
+  Minimum eigenvalue
+</ParamField>
+
+<ParamField path="e_max" type="float">
+  Maximum eigenvalue
+</ParamField>
+
+<ParamField path="n_components" type="int">
+  Number of B-spline basis functions
+</ParamField>
+
+**Returns**
+
+<ResponseField name="filter" type="Callable">
+  Function that takes eigenvalues and returns B-spline filter coefficients
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import construct_bspline_filter, spectral_geometry_filter
+
+filter_func = construct_bspline_filter(0.0, 1e-8, 64)
+features = spectral_geometry_filter(
+    mesh,
+    filter=filter_func,
+    max_eigenvalue=1e-8
+)
+```

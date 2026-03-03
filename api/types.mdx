@@ -1,0 +1,73 @@
+---
+title: 'Types'
+description: 'Type definitions and type utilities for MeshMash'
+---
+
+## Type Aliases
+
+### Mesh
+
+```python
+Mesh = Union[tuple[np.ndarray, np.ndarray], Any]
+```
+
+A mesh can be represented as:
+- A tuple of `(vertices, faces)` where both are numpy arrays
+- Any object with `vertices` and `faces` attributes
+
+### ArrayLike
+
+```python
+ArrayLike = Union[np.ndarray, list, tuple]
+```
+
+Represents array-like objects that can be converted to numpy arrays.
+
+## Functions
+
+### interpret_mesh
+
+```python
+def interpret_mesh(mesh) -> Tuple[np.ndarray, np.ndarray]
+```
+
+Converts various mesh representations into a standardized tuple format of vertices and faces.
+
+<ParamField path="mesh" type="Mesh">
+  A mesh object that can be either a tuple of (vertices, faces) or an object with vertices and faces attributes
+</ParamField>
+
+**Returns:** `Tuple[np.ndarray, np.ndarray]`
+
+A tuple containing:
+- `vertices`: An array of vertex coordinates
+- `faces`: An array of face indices
+
+**Raises:** `ValueError`
+
+Raises if the mesh is not a tuple or doesn't have both `vertices` and `faces` attributes.
+
+<CodeGroup>
+```python Example with tuple
+import numpy as np
+from meshmash.types import interpret_mesh
+
+vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
+faces = np.array([[0, 1, 2]])
+mesh = (vertices, faces)
+
+verts, face_indices = interpret_mesh(mesh)
+```
+
+```python Example with object
+from meshmash.types import interpret_mesh
+
+class CustomMesh:
+    def __init__(self, vertices, faces):
+        self.vertices = vertices
+        self.faces = faces
+
+mesh_obj = CustomMesh(vertices, faces)
+verts, face_indices = interpret_mesh(mesh_obj)
+```
+</CodeGroup>

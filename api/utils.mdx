@@ -1,0 +1,525 @@
+---
+title: 'Utils'
+description: 'Mesh utility functions for transformation, analysis, and manipulation'
+---
+
+## Conversion Functions
+
+### mesh_to_poly
+
+```python
+def mesh_to_poly(mesh: Mesh) -> pv.PolyData
+```
+
+Converts a mesh to PyVista PolyData format.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh as tuple, PolyData, or object with vertices/faces or polydata attribute
+</ParamField>
+
+**Returns:** `pv.PolyData` - PyVista PolyData representation of the mesh
+
+```python Example
+from meshmash.utils import mesh_to_poly
+
+vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]])
+faces = np.array([[0, 1, 2]])
+mesh = (vertices, faces)
+
+poly = mesh_to_poly(mesh)
+```
+
+### mesh_to_edges
+
+```python
+def mesh_to_edges(mesh: Mesh) -> np.ndarray
+```
+
+Extracts all edges from a mesh.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+**Returns:** `np.ndarray` - Array of shape (N, 2) containing edge vertex indices
+
+```python Example
+from meshmash.utils import mesh_to_edges
+
+edges = mesh_to_edges(mesh)
+print(edges.shape)  # (num_edges, 2)
+```
+
+### mesh_to_adjacency
+
+```python
+def mesh_to_adjacency(mesh: Mesh) -> csr_array
+```
+
+Computes the adjacency matrix of a mesh weighted by edge lengths.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+**Returns:** `csr_array` - Sparse adjacency matrix with edge lengths as weights
+
+```python Example
+from meshmash.utils import mesh_to_adjacency
+
+adj = mesh_to_adjacency(mesh)
+print(adj.shape)  # (num_vertices, num_vertices)
+```
+
+### poly_to_mesh
+
+```python
+def poly_to_mesh(poly: pv.PolyData) -> Mesh
+```
+
+Converts PyVista PolyData back to mesh tuple format.
+
+<ParamField path="poly" type="pv.PolyData">
+  PyVista PolyData object
+</ParamField>
+
+**Returns:** `Mesh` - Tuple of (vertices, faces)
+
+```python Example
+from meshmash.utils import poly_to_mesh, mesh_to_poly
+
+poly = mesh_to_poly(mesh)
+vertices, faces = poly_to_mesh(poly)
+```
+
+## Mesh Repair
+
+### fix_mesh
+
+```python
+def fix_mesh(mesh, **kwargs)
+```
+
+Repairs mesh defects using pymeshfix.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh to repair
+</ParamField>
+
+<ParamField path="**kwargs" type="dict">
+  Additional keyword arguments passed to MeshFix.repair()
+</ParamField>
+
+**Returns:** `Mesh` - Repaired mesh as tuple of (vertices, faces)
+
+```python Example
+from meshmash.utils import fix_mesh
+
+fixed_mesh = fix_mesh(mesh, verbose=True)
+```
+
+## Point and Projection Operations
+
+### project_points_to_mesh
+
+```python
+def project_points_to_mesh(
+    points, mesh, distance_threshold=None, return_distances=False
+)
+```
+
+Projects points to the nearest vertices on a mesh.
+
+<ParamField path="points" type="np.ndarray">
+  Array of points to project
+</ParamField>
+
+<ParamField path="mesh" type="Mesh">
+  Target mesh
+</ParamField>
+
+<ParamField path="distance_threshold" type="float" default="None">
+  Maximum distance for valid projections. Points beyond this distance are assigned index -1
+</ParamField>
+
+<ParamField path="return_distances" type="bool" default="False">
+  Whether to return distances along with indices
+</ParamField>
+
+**Returns:** `np.ndarray` or `Tuple[np.ndarray, np.ndarray]`
+- If `return_distances=False`: Array of nearest vertex indices
+- If `return_distances=True`: Tuple of (indices, distances)
+
+```python Example
+from meshmash.utils import project_points_to_mesh
+
+points = np.array([[0.1, 0.1, 0.0], [0.5, 0.5, 0.0]])
+indices = project_points_to_mesh(points, mesh)
+
+# With distance threshold
+indices, distances = project_points_to_mesh(
+    points, mesh, distance_threshold=1.0, return_distances=True
+)
+```
+
+### compute_distances_to_point
+
+```python
+def compute_distances_to_point(points, center_point)
+```
+
+Computes the Euclidean distance of each point to a center point.
+
+<ParamField path="points" type="np.ndarray">
+  Array of points
+</ParamField>
+
+<ParamField path="center_point" type="np.ndarray">
+  Center point coordinates
+</ParamField>
+
+**Returns:** `np.ndarray` - Array of distances
+
+```python Example
+from meshmash.utils import compute_distances_to_point
+
+points = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+center = np.array([0, 0, 0])
+distances = compute_distances_to_point(points, center)
+```
+
+## Component Analysis
+
+### component_size_transform
+
+```python
+def component_size_transform(mesh, indices=None)
+```
+
+Returns the size of each connected component in a mesh.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="indices" type="np.ndarray" default="None">
+  Vertex indices to query. If None, uses all vertices
+</ParamField>
+
+**Returns:** `np.ndarray` - Array of component sizes for each queried index
+
+```python Example
+from meshmash.utils import component_size_transform
+
+component_sizes = component_size_transform(mesh)
+print(f"Vertex 0 is in component of size: {component_sizes[0]}")
+```
+
+### get_label_components
+
+```python
+def get_label_components(mesh, labels) -> np.ndarray
+```
+
+Returns the connected components of a mesh which share the same label.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray or pd.Series">
+  Label for each vertex
+</ParamField>
+
+**Returns:** `np.ndarray` - Component labels where vertices with the same label and connectivity share the same component ID
+
+```python Example
+from meshmash.utils import get_label_components
+
+labels = np.array([0, 0, 1, 1, 1, 0])
+components = get_label_components(mesh, labels)
+```
+
+### mesh_connected_components
+
+```python
+def mesh_connected_components(mesh, size_threshold=100)
+```
+
+Generator that yields individual connected components as separate meshes.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="size_threshold" type="int" default="100">
+  Minimum component size to include. If None, includes all components
+</ParamField>
+
+**Yields:** `Mesh` - Individual connected component meshes
+
+```python Example
+from meshmash.utils import mesh_connected_components
+
+for component_mesh in mesh_connected_components(mesh, size_threshold=50):
+    print(f"Component has {len(component_mesh[0])} vertices")
+```
+
+### largest_mesh_component
+
+```python
+def largest_mesh_component(mesh: Mesh) -> Mesh
+```
+
+Extracts the largest connected component from a mesh.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+**Returns:** `Mesh` - Largest connected component
+
+```python Example
+from meshmash.utils import largest_mesh_component
+
+largest = largest_mesh_component(mesh)
+```
+
+### threshold_mesh_by_component_size
+
+```python
+def threshold_mesh_by_component_size(mesh, size_threshold=100)
+```
+
+Filters mesh to only include components above a size threshold.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="size_threshold" type="int" default="100">
+  Minimum component size to keep
+</ParamField>
+
+**Returns:** `Tuple[Mesh, np.ndarray]`
+- Filtered mesh
+- Indices of kept vertices in original mesh
+
+```python Example
+from meshmash.utils import threshold_mesh_by_component_size
+
+filtered_mesh, kept_indices = threshold_mesh_by_component_size(mesh, size_threshold=200)
+```
+
+## Mesh Subsetting
+
+### subset_mesh_by_indices
+
+```python
+def subset_mesh_by_indices(mesh: Mesh, indices: np.ndarray) -> Mesh
+```
+
+Creates a submesh containing only specified vertices and their associated faces.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="indices" type="np.ndarray">
+  Vertex indices to include (can be boolean mask or integer indices)
+</ParamField>
+
+**Returns:** `Mesh` - Submesh containing only faces where all vertices are in the subset
+
+```python Example
+from meshmash.utils import subset_mesh_by_indices
+
+# Using integer indices
+indices = np.array([0, 1, 2, 5, 6])
+submesh = subset_mesh_by_indices(mesh, indices)
+
+# Using boolean mask
+mask = component_sizes > 100
+submesh = subset_mesh_by_indices(mesh, mask)
+```
+
+### rough_subset_mesh_by_indices
+
+```python
+def rough_subset_mesh_by_indices(mesh: Mesh, indices: np.ndarray)
+```
+
+Creates a submesh including faces that have any vertex in the specified indices.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="indices" type="np.ndarray">
+  Vertex indices to include
+</ParamField>
+
+**Returns:** `Tuple[Mesh, np.ndarray]`
+- Submesh including faces with any vertex in indices
+- New vertex indices in the submesh
+
+```python Example
+from meshmash.utils import rough_subset_mesh_by_indices
+
+indices = np.array([0, 1, 2])
+submesh, new_indices = rough_subset_mesh_by_indices(mesh, indices)
+```
+
+## Mesh Combination
+
+### combine_meshes
+
+```python
+def combine_meshes(meshes)
+```
+
+Combines multiple meshes into a single mesh.
+
+<ParamField path="meshes" type="list[Mesh]">
+  List of meshes to combine
+</ParamField>
+
+**Returns:** `Mesh` - Combined mesh with all vertices and faces
+
+```python Example
+from meshmash.utils import combine_meshes
+
+mesh1 = (vertices1, faces1)
+mesh2 = (vertices2, faces2)
+mesh3 = (vertices3, faces3)
+
+combined = combine_meshes([mesh1, mesh2, mesh3])
+```
+
+## Transformations
+
+### scale_mesh
+
+```python
+def scale_mesh(mesh: Mesh, scale: float) -> Mesh
+```
+
+Scales a mesh by a given factor.
+
+<ParamField path="mesh" type="Mesh">
+  Input mesh
+</ParamField>
+
+<ParamField path="scale" type="float">
+  Scale factor
+</ParamField>
+
+**Returns:** `Mesh` - Scaled mesh
+
+```python Example
+from meshmash.utils import scale_mesh
+
+# Scale mesh to 2x size
+scaled_mesh = scale_mesh(mesh, 2.0)
+
+# Scale mesh to half size
+smaller_mesh = scale_mesh(mesh, 0.5)
+```
+
+## Label Operations
+
+### expand_labels
+
+```python
+def expand_labels(condensed_labels: np.ndarray, mapping: np.ndarray) -> np.ndarray
+```
+
+Expands a condensed set of labels for a reduced mesh to the full mesh.
+
+<ParamField path="condensed_labels" type="np.ndarray">
+  Labels for the condensed mesh
+</ParamField>
+
+<ParamField path="mapping" type="np.ndarray">
+  Mapping from full mesh indices to condensed mesh indices
+</ParamField>
+
+**Returns:** `np.ndarray` - Expanded labels with -1 for unmapped vertices
+
+```python Example
+from meshmash.utils import expand_labels
+
+condensed_labels = np.array([0, 1, 1, 2])
+mapping = np.array([0, 0, 1, -1, 2, 3])  # -1 means unmapped
+full_labels = expand_labels(condensed_labels, mapping)
+```
+
+### shuffle_label_mapping
+
+```python
+def shuffle_label_mapping(x)
+```
+
+Randomly permutes label values while preserving label assignments.
+
+<ParamField path="x" type="np.ndarray">
+  Array of labels
+</ParamField>
+
+**Returns:** `np.ndarray` - Labels with shuffled values
+
+```python Example
+from meshmash.utils import shuffle_label_mapping
+
+labels = np.array([0, 0, 1, 1, 2, 2])
+shuffled = shuffle_label_mapping(labels)
+# Might become [2, 2, 0, 0, 1, 1] - values shuffled but grouping preserved
+```
+
+## Graph Utilities
+
+### edges_to_lines
+
+```python
+def edges_to_lines(edges: np.ndarray) -> np.ndarray
+```
+
+Converts edge array to PyVista lines format.
+
+<ParamField path="edges" type="np.ndarray">
+  Array of shape (N, 2) containing edge vertex indices
+</ParamField>
+
+**Returns:** `np.ndarray` - Array with shape (N, 3) where first column is 2 (line cell size)
+
+```python Example
+from meshmash.utils import edges_to_lines
+
+edges = np.array([[0, 1], [1, 2], [2, 0]])
+lines = edges_to_lines(edges)
+print(lines)  # [[2, 0, 1], [2, 1, 2], [2, 2, 0]]
+```
+
+### graph_to_adjacency
+
+```python
+def graph_to_adjacency(graph: tuple) -> csr_array
+```
+
+Converts a graph represented as (vertices, edges) to an adjacency matrix.
+
+<ParamField path="graph" type="tuple">
+  Tuple of (vertices, edges)
+</ParamField>
+
+**Returns:** `csr_array` - Sparse adjacency matrix
+
+```python Example
+from meshmash.utils import graph_to_adjacency
+
+vertices = np.array([[0, 0], [1, 0], [1, 1]])
+edges = np.array([[0, 1], [1, 2]])
+graph = (vertices, edges)
+
+adj = graph_to_adjacency(graph)
+```

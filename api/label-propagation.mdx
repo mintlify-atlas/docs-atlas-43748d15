@@ -1,0 +1,138 @@
+---
+title: Label Propagation
+description: Semi-supervised learning via label propagation on graph structures
+---
+
+The label propagation module provides functions for propagating labels through graph structures using normalized Laplacian smoothing.
+
+## Functions
+
+### to_laplacian
+
+Converts an adjacency matrix to a normalized Laplacian matrix.
+
+```python
+to_laplacian(adj)
+```
+
+<ParamField path="adj" type="array-like">
+  Adjacency matrix (will be converted to sparse CSR format)
+</ParamField>
+
+**Returns:** `csr_array` - Normalized Laplacian matrix L = D^(-1/2) * A * D^(-1/2)
+
+**Details:**
+
+The normalized Laplacian is computed as:
+
+```
+L = D^(-1/2) * (A + A^T) * D^(-1/2)
+```
+
+where D is the diagonal degree matrix and A is the adjacency matrix. The matrix is symmetrized before normalization.
+
+---
+
+### to_adjacency
+
+Converts edge list and vertices to a sparse adjacency matrix.
+
+```python
+to_adjacency(vertices, edges)
+```
+
+<ParamField path="vertices" type="np.ndarray">
+  Vertex array of shape (n_vertices, n_dims)
+</ParamField>
+
+<ParamField path="edges" type="np.ndarray">
+  Edge array of shape (n_edges, 2) containing vertex indices
+</ParamField>
+
+**Returns:** `csr_array` - Sparse adjacency matrix of shape (n_vertices, n_vertices)
+
+**Example:**
+```python
+import numpy as np
+from meshmash import to_adjacency
+
+vertices = np.array([[0, 0], [1, 0], [1, 1], [0, 1]])
+edges = np.array([[0, 1], [1, 2], [2, 3], [3, 0]])
+
+adj = to_adjacency(vertices, edges)
+print(adj.toarray())
+```
+
+---
+
+### label_propagation
+
+Performs label propagation on a graph using the normalized Laplacian method.
+
+```python
+label_propagation(adjacency, labels, alpha=0.995)
+```
+
+<ParamField path="adjacency" type="sparse matrix">
+  Adjacency matrix defining the graph structure
+</ParamField>
+
+<ParamField path="labels" type="np.ndarray">
+  Initial label values for each node. Can be binary labels, soft labels, or continuous values.
+</ParamField>
+
+<ParamField path="alpha" type="float" default="0.995">
+  Diffusion parameter controlling the influence of neighbors. Higher values (closer to 1) result in more smoothing.
+</ParamField>
+
+**Returns:** `np.ndarray` - Propagated label values for each node
+
+**Details:**
+
+This function solves the linear system:
+
+```
+(I - α * L) * F = Y
+```
+
+where:
+- I is the identity matrix
+- L is the normalized Laplacian
+- α is the diffusion parameter
+- Y is the initial label vector
+- F is the solution (propagated labels)
+
+The output is scaled by (1 - α).
+
+**Example:**
+```python
+import numpy as np
+from scipy.sparse import csr_array
+from meshmash import label_propagation
+
+# Create a simple graph
+n = 100
+adj = csr_array(np.random.rand(n, n) > 0.9)
+
+# Initial labels (semi-supervised: some labeled, most unlabeled)
+labels = np.zeros(n)
+labels[:10] = 1.0  # Label first 10 nodes
+
+# Propagate labels
+propagated = label_propagation(adj, labels, alpha=0.95)
+
+print(f"Original labeled: {(labels > 0).sum()}")
+print(f"Propagated values range: [{propagated.min():.3f}, {propagated.max():.3f}]")
+```
+
+**Use Cases:**
+
+- Semi-supervised classification: Label a few nodes and propagate to unlabeled nodes
+- Signal smoothing on graphs: Denoise signals defined on graph vertices
+- Feature diffusion: Spread feature values across connected regions
+
+**Parameters Guide:**
+
+- `alpha` close to 1.0 (e.g., 0.99): Strong smoothing, labels diffuse far across the graph
+- `alpha` around 0.5: Moderate smoothing, balanced between initial labels and neighbors
+- `alpha` close to 0.0: Weak smoothing, stays close to initial labels

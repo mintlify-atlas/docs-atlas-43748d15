@@ -1,0 +1,294 @@
+---
+title: 'Laplacian Decomposition'
+description: 'Understanding eigendecomposition of the mesh Laplacian in MeshMash'
+---
+
+## Overview
+
+Laplacian decomposition is the foundation of spectral mesh processing in MeshMash. By decomposing the mesh Laplacian operator into its eigenvalues and eigenvectors, we can analyze and manipulate mesh geometry in the frequency domain.
+
+## The Mesh Laplacian
+
+MeshMash computes the cotangent Laplacian, a discrete differential operator that generalizes the Laplace-Beltrami operator to triangular meshes.
+
+### Cotangent Weights
+
+The cotangent Laplacian uses cotangent weights that naturally arise from discrete differential geometry:
+
+```python
+from meshmash import cotangent_laplacian
+
+# Compute Laplacian and mass matrices
+L, M = cotangent_laplacian(mesh)
+
+# L is a (n, n) sparse matrix of cotangent weights
+# M is a (n, n) diagonal matrix of vertex areas
+```
+
+<Info>
+The cotangent Laplacian is derived from the discrete Laplace-Beltrami operator and provides a natural discretization of geometric properties on triangle meshes.
+</Info>
+
+### Robust Laplacian
+
+For non-manifold or poorly-conditioned meshes, use the robust Laplacian:
+
+```python
+L, M = cotangent_laplacian(mesh, robust=True, mollify_factor=1e-5)
+```
+
+<Note>
+The robust Laplacian implementation requires the `robust-laplacian` package. It handles edge cases and numerical issues better than the standard cotangent Laplacian.
+</Note>
+
+### Area Matrix
+
+The area matrix `M` is a diagonal matrix where each entry represents the lumped area of a vertex:
+
+```python
+from meshmash import area_matrix, compute_vertex_areas
+
+# Get the diagonal area matrix
+M = area_matrix(mesh)
+
+# Or just get vertex areas as an array
+areas = compute_vertex_areas(mesh)
+```
+
+The area of each vertex is approximated as one-third of the sum of adjacent triangle areas.
+
+## Eigendecomposition
+
+The eigendecomposition solves the generalized eigenvalue problem:
+
+```
+L φᵢ = λᵢ M φᵢ
+```
+
+Where:
+- `λᵢ` are eigenvalues (frequencies)
+- `φᵢ` are eigenvectors (eigenfunctions)
+- Lower eigenvalues correspond to smooth, low-frequency functions
+- Higher eigenvalues correspond to oscillatory, high-frequency functions
+
+### Basic Decomposition
+
+Decompose a mesh into its spectral components:
+
+```python
+from meshmash import decompose_mesh
+
+# Compute first 100 eigenvalues and eigenvectors
+eigenvalues, eigenvectors = decompose_mesh(
+    mesh, 
+    n_components=100,
+    robust=True
+)
+
+# eigenvalues: (100,) array of frequencies
+# eigenvectors: (n_vertices, 100) array of eigenfunctions
+```
+
+### Direct Laplacian Decomposition
+
+If you already have the Laplacian matrices:
+
+```python
+from meshmash import decompose_laplacian
+
+L, M = cotangent_laplacian(mesh, robust=True)
+eigenvalues, eigenvectors = decompose_laplacian(
+    L, M, 
+    n_components=100,
+    sigma=-1e-10,
+    tol=1e-10
+)
+```
+
+<CodeGroup>
+```python Standard Decomposition
+from meshmash import decompose_mesh
+
+# Simple interface for mesh decomposition
+evals, evecs = decompose_mesh(
+    mesh,
+    n_components=50,
+    robust=True
+)
+```
+
+```python Advanced Options
+from meshmash import decompose_laplacian, cotangent_laplacian
+
+# More control over the decomposition
+L, M = cotangent_laplacian(mesh, robust=True, mollify_factor=1e-5)
+
+evals, evecs = decompose_laplacian(
+    L, M,
+    n_components=100,
+    sigma=-1e-10,
+    tol=1e-10,
+    prefactor='lu'  # Use LU prefactoring for speed
+)
+```
+</CodeGroup>
+
+## Band-by-Band Decomposition
+
+For large meshes or high-frequency analysis, compute eigenvalues in bands:
+
+```python
+from meshmash import decompose_laplacian_by_bands
+
+L, M = cotangent_laplacian(mesh, robust=True)
+
+eigenvalues, eigenvectors = decompose_laplacian_by_bands(
+    L, M,
+    max_eigenvalue=1e-8,
+    band_size=50,
+    truncate_extra=True,
+    verbose=True
+)
+```
+
+### How It Works
+
+The band-by-band algorithm is based on the spectral geometry processing approach by Levy & Zhang (2009):
+
+1. **Shift-Invert Mode**: ARPACK is efficient at finding eigenvalues near a target `sigma`
+2. **Overlapping Bands**: Each band overlaps with the previous to ensure continuity
+3. **Adaptive Sigma**: The next `sigma` is chosen to be in the middle of the next band
+4. **Efficiency**: Much faster than computing all eigenvalues at once for high frequencies
+
+<Info>
+The band-by-band approach is particularly useful when you need eigenvalues up to a specific maximum frequency, as it only overshoots by at most one band.
+</Info>
+
+### Parameters
+
+- **max_eigenvalue**: Maximum frequency to compute up to
+- **band_size**: Number of eigenvalues per band (typically 50)
+- **truncate_extra**: Whether to truncate to exactly `max_eigenvalue`
+- **verbose**: Show progress bar and diagnostic information
+
+## Understanding Eigenvalues
+
+Eigenvalues represent frequencies of oscillation on the mesh:
+
+```python
+import matplotlib.pyplot as plt
+
+evals, evecs = decompose_mesh(mesh, n_components=100)
+
+# Plot eigenvalue spectrum
+plt.figure(figsize=(10, 4))
+plt.subplot(1, 2, 1)
+plt.plot(evals)
+plt.xlabel('Index')
+plt.ylabel('Eigenvalue')
+plt.title('Eigenvalue Spectrum')
+
+plt.subplot(1, 2, 2)
+plt.semilogy(evals)
+plt.xlabel('Index')
+plt.ylabel('Eigenvalue (log scale)')
+plt.title('Log Eigenvalue Spectrum')
+plt.tight_layout()
+```
+
+### Properties
+
+- **First Eigenvalue**: Always 0 (constant function)
+- **First Eigenvector**: Constant function weighted by vertex areas
+- **Low Eigenvalues**: Smooth, global shape information
+- **High Eigenvalues**: Fine details, local features
+
+## Understanding Eigenvectors
+
+Eigenvectors are functions defined on the mesh vertices:
+
+```python
+import pyvista as pv
+from meshmash import mesh_to_poly
+
+evals, evecs = decompose_mesh(mesh, n_components=20)
+
+# Visualize different eigenvectors
+poly = mesh_to_poly(mesh)
+for i in [1, 5, 10, 19]:  # Skip 0th (constant)
+    poly_copy = poly.copy()
+    poly_copy['eigenfunction'] = evecs[:, i]
+    poly_copy.plot(
+        scalars='eigenfunction',
+        cmap='RdBu',
+        show_scalar_bar=True,
+        title=f'Eigenvector {i} (λ={evals[i]:.6f})'
+    )
+```
+
+<Note>
+Eigenvectors are orthogonal with respect to the mass matrix M, meaning: φᵢᵀ M φⱼ = 0 for i ≠ j
+</Note>
+
+## Performance Optimization
+
+### LU Prefactoring
+
+For faster decomposition, use LU prefactoring:
+
+```python
+evals, evecs = decompose_laplacian(
+    L, M,
+    n_components=100,
+    prefactor='lu'
+)
+```
+
+### Data Types
+
+Use `float32` for large meshes:
+
+```python
+L, M = cotangent_laplacian(mesh, robust=True)
+L = L.astype(np.float32)
+M = M.astype(np.float32)
+
+evals, evecs = decompose_laplacian(L, M, n_components=100)
+```
+
+## Common Use Cases
+
+### Mesh Filtering
+
+Reconstruct mesh with only low frequencies:
+
+```python
+evals, evecs = decompose_mesh(mesh, n_components=50)
+vertices, faces = mesh
+
+# Use only first 10 eigenvectors
+k = 10
+coeffs = evecs[:, :k].T @ vertices
+smoothed_vertices = evecs[:, :k] @ coeffs
+
+smoothed_mesh = (smoothed_vertices, faces)
+```
+
+### Shape Analysis
+
+Eigenvalues are intrinsic shape descriptors:
+
+```python
+# Compare two shapes by their eigenvalue spectra
+evals1, _ = decompose_mesh(mesh1, n_components=100)
+evals2, _ = decompose_mesh(mesh2, n_components=100)
+
+# Compute spectral distance
+distance = np.linalg.norm(evals1 - evals2)
+```
+
+## References
+
+- **Cotangent Laplacian**: Adapted from [pyFM](https://github.com/RobinMagnet/pyFM) (MIT License)
+- **Band-by-Band Algorithm**: Spectral Geometry Processing with Manifold Harmonics, Vallet and Levy, 2008
+- **Robust Laplacian**: A Laplacian for Nonmanifold Triangle Meshes, Sharp and Crane, 2020
