@@ -575,6 +575,56 @@ Returns a callable that computes HKS coefficients for given eigenvalues.
 
 ---
 
+### construct_bspline_basis
+
+```python
+def construct_bspline_basis(
+    e_min: float,
+    e_max: float,
+    n_components: int
+) -> list[BSpline]
+```
+
+Construct a set of B-spline basis functions for spectral filtering.
+
+Creates cubic B-spline basis functions uniformly distributed in the eigenvalue range. This is a lower-level function used by `construct_bspline_filter`.
+
+<ParamField path="e_min" type="float">
+  Minimum eigenvalue
+</ParamField>
+
+<ParamField path="e_max" type="float">
+  Maximum eigenvalue
+</ParamField>
+
+<ParamField path="n_components" type="int">
+  Number of B-spline basis functions to create
+</ParamField>
+
+**Returns**
+
+<ResponseField name="bases" type="list[BSpline]">
+  List of scipy.interpolate.BSpline objects representing the basis functions
+</ResponseField>
+
+**Example**
+
+```python
+from meshmash.decompose import construct_bspline_basis
+import numpy as np
+
+# Create 32 basis functions over eigenvalue range [0, 1e-8]
+bases = construct_bspline_basis(0.0, 1e-8, 32)
+
+# Evaluate each basis at specific eigenvalues
+eigenvalues = np.linspace(0, 1e-8, 100)
+for i, basis in enumerate(bases):
+    values = basis(eigenvalues)
+    print(f"Basis {i}: max value = {values.max():.3f}")
+```
+
+---
+
 ### construct_bspline_filter
 
 ```python

@@ -127,6 +127,111 @@ for i, indices in enumerate(indices_by_submesh):
 
 ---
 
+### fit_mesh_split_lap
+
+Splits a mesh using cotangent Laplacian bisection instead of graph Laplacian. This method can produce better splits for irregular meshes by considering geometric properties.
+
+<ParamField path="mesh" type="Union[Mesh, np.ndarray, csr_array]" required>
+  The mesh to split.
+</ParamField>
+
+<ParamField path="max_vertex_threshold" type="int" default="20000">
+  Maximum number of vertices allowed in each submesh.
+</ParamField>
+
+<ParamField path="min_vertex_threshold" type="int" default="100">
+  Minimum number of vertices required for a submesh to be considered.
+</ParamField>
+
+<ParamField path="max_rounds" type="int" default="100000">
+  Maximum number of splitting rounds to perform.
+</ParamField>
+
+<ParamField path="robust" type="bool" default="True">
+  Whether to use robust Laplacian computation.
+</ParamField>
+
+<ParamField path="mollify_factor" type="float" default="1e-5">
+  Mollification factor for robust Laplacian.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Whether to print progress information.
+</ParamField>
+
+**Returns:** `np.ndarray` - An array mapping each vertex to its submesh ID.
+
+```python
+import meshmash as mm
+
+# Split using cotangent Laplacian for better geometric splits
+submesh_mapping = mm.fit_mesh_split_lap(
+    mesh,
+    max_vertex_threshold=10000,
+    robust=True,
+    verbose=True
+)
+```
+
+---
+
+### graph_laplacian_split
+
+Performs a single bisection of a mesh using the graph Laplacian. This is the low-level splitting primitive used by `fit_mesh_split`.
+
+<ParamField path="adj" type="csr_array" required>
+  Sparse adjacency matrix representing the mesh connectivity.
+</ParamField>
+
+<ParamField path="dtype" type="np.dtype" default="np.float32">
+  Data type for computations.
+</ParamField>
+
+**Returns:** `tuple[np.ndarray, np.ndarray]` - Two arrays containing indices for each half of the split.
+
+```python
+import meshmash as mm
+import numpy as np
+
+# Get mesh adjacency
+adj = mm.mesh_to_adjacency(mesh)
+
+# Perform single bisection
+indices1, indices2 = mm.graph_laplacian_split(adj)
+
+print(f"Split into {len(indices1)} and {len(indices2)} vertices")
+```
+
+---
+
+### get_submesh_borders
+
+Identifies border vertices in a submesh (vertices on the boundary where the mesh was cut).
+
+<ParamField path="submesh" type="Mesh" required>
+  The submesh to analyze.
+</ParamField>
+
+**Returns:** `np.ndarray` - Array of vertex indices that lie on the submesh boundary.
+
+<Note>
+This function currently requires the input mesh to be manifold.
+</Note>
+
+```python
+import meshmash as mm
+
+# Get a submesh
+submesh_mapping = mm.fit_mesh_split(mesh, max_vertex_threshold=10000)
+submeshes = mm.apply_mesh_split(mesh, submesh_mapping)
+
+# Find border vertices in first submesh
+border_indices = mm.get_submesh_borders(submeshes[0])
+print(f"Found {len(border_indices)} border vertices")
+```
+
+---
+
 ## Classes
 
 ### MeshStitcher
